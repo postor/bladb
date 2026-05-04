@@ -1,0 +1,53 @@
+auth:
+  jwt:
+    claims:
+      UID: uid
+      TENANT_ID: tenantId
+      ROLES: roles
+
+policies:
+  - name: flashsale.items.find
+    match:
+      engine: mongo
+      collection: flashsale_items
+      action: findOne
+    enforce:
+      query:
+        tenantId: "{TENANT_ID}"
+
+  - name: flashsale.stock.read
+    match:
+      engine: redis
+      command: get
+    enforce:
+      key:
+        allowPrefixes:
+          - "flashsale:"
+
+  - name: flashsale.wallet.read
+    match:
+      engine: redis
+      command: get
+    enforce:
+      key:
+        exact: "{UID}_wallet"
+
+  - name: flashsale.orders.read-mine
+    match:
+      engine: sql
+      operation: select
+      tables: [orders]
+    enforce:
+      where:
+        uid: "{UID}"
+        tenant_id: "{TENANT_ID}"
+
+  - name: flashsale.orders.create
+    match:
+      engine: sql
+      operation: insert
+      tables: [orders]
+    enforce:
+      fields:
+        uid: "{UID}"
+        tenant_id: "{TENANT_ID}"

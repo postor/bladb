@@ -1,0 +1,71 @@
+workers:
+  - name: order.analytics-sync
+    trigger:
+      type: event
+      topic: order.created
+      backend: kafka
+    source: sql.orders
+    identity:
+      mode: inherit-actor
+    idempotency:
+      keyFrom: event.eventId
+    retry:
+      maxAttempts: 5
+      backoff: exponential
+    timeoutMs: 15000
+    steps:
+      - use: mongo
+        action: upsert
+        collection: order_snapshots
+      - use: kafka
+        action: produce
+        topic: analytics.order.created
+
+  - name: order.payment-timeout-scheduler
+    trigger:
+      type: event
+      topic: order.created
+      backend: kafka
+    source: sql.orders
+    identity:
+      mode: system
+      as: worker.order-payment-timeout-scheduler
+    idempotency:
+      keyFrom: event.payload.orderId
+    retry:
+      maxAttempts: 3
+      backoff: exponential
+    timeoutMs: 8000
+    steps:
+      - use: mq
+        action: publishDelayed
+        queue: order.payment.timeout
+        delayMs: 900000
+
+  - name: order.payment-timeout-handler
+    trigger:
+      type: queue
+      queue: order.payment.timeout
+      backend: mq
+    source: mq.order.payment.timeout
+    identity:
+      mode: system
+      as: worker.order-payment-timeout-handler
+    idempotency:
+      keyFrom: job.payload.orderId
+    retry:
+      maxAttempts: 10
+      backoff: exponential
+    deadLetter:
+      queue: order.payment.timeout.dlq
+    timeoutMs: 20000
+    steps:
+      - use: sql
+        action: conditionalUpdate
+        table: orders
+      - use: redis
+        action: incrby
+        keyTemplate: "flashsale:{job.payload.sku}:stock"
+      - use: kafka
+        action: produce
+        topic: order.cancelled

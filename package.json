@@ -1,0 +1,12 @@
+{
+  "name": "bladb",
+  "private": true,
+  "packageManager": "pnpm@10.15.1",
+  "scripts": {
+    "dev:flash-sale": "pnpm --dir apps/examples/flash-sale dev",
+    "dev:iot": "pnpm --dir apps/examples/iot-realtime dev"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

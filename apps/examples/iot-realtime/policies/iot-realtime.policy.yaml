@@ -1,0 +1,43 @@
+auth:
+  jwt:
+    claims:
+      UID: uid
+      TENANT_ID: tenantId
+      ROLES: roles
+
+policies:
+  - name: iot.devices.list-mine
+    match:
+      engine: mongo
+      collection: devices
+      action: find
+    enforce:
+      query:
+        ownerUid: "{UID}"
+        tenantId: "{TENANT_ID}"
+
+  - name: iot.telemetry.read-latest
+    match:
+      engine: mongo
+      collection: telemetry_latest
+      action: findOne
+    enforce:
+      query:
+        ownerUid: "{UID}"
+        tenantId: "{TENANT_ID}"
+
+  - name: iot.active-count.read
+    match:
+      engine: redis
+      command: get
+    enforce:
+      key:
+        exact: "iot:{TENANT_ID}:active-count"
+
+  - name: iot.device-command.publish
+    match:
+      engine: redis
+      command: publish
+    enforce:
+      key:
+        template: "iot:{TENANT_ID}:devices:{args.deviceId}:commands"

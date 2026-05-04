@@ -1,0 +1,67 @@
+workers:
+  - name: telemetry.latest-projector
+    trigger:
+      type: event
+      topic: telemetry.received
+      backend: kafka
+    source: mqtt.devices.telemetry
+    identity:
+      mode: inherit-actor
+    idempotency:
+      keyFrom: event.eventId
+    retry:
+      maxAttempts: 5
+      backoff: exponential
+    timeoutMs: 12000
+    steps:
+      - use: mongo
+        action: upsert
+        collection: telemetry_latest
+
+  - name: telemetry.counter-updater
+    trigger:
+      type: event
+      topic: telemetry.received
+      backend: kafka
+    source: mqtt.devices.telemetry
+    identity:
+      mode: system
+      as: worker.telemetry-counter-updater
+    idempotency:
+      keyFrom: event.payload.deviceId
+    retry:
+      maxAttempts: 5
+      backoff: exponential
+    timeoutMs: 5000
+    steps:
+      - use: redis
+        action: setOnlineState
+        keyTemplate: "iot:{event.actor.tenantId}:devices:{event.payload.deviceId}:online"
+      - use: redis
+        action: recomputeCounter
+        keyTemplate: "iot:{event.actor.tenantId}:active-count"
+
+  - name: telemetry.alert-evaluator
+    trigger:
+      type: event
+      topic: telemetry.received
+      backend: kafka
+    source: mqtt.devices.telemetry
+    identity:
+      mode: system
+      as: worker.telemetry-alert-evaluator
+    idempotency:
+      keyFrom: event.eventId
+    retry:
+      maxAttempts: 8
+      backoff: exponential
+    deadLetter:
+      topic: telemetry.alert-evaluator.dlq
+    timeoutMs: 10000
+    steps:
+      - use: kafka
+        action: conditionalProduce
+        topic: device.alert.raised
+      - use: mongo
+        action: insertOne
+        collection: alert_history
