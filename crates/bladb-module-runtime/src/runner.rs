@@ -1,7 +1,4 @@
-use crate::{
-    service::ModuleRuntimeService,
-    ModuleRuntimeError,
-};
+use crate::{service::ModuleRuntimeService, ModuleRuntimeError};
 use bladb_core::bus::{ModuleRpcRequest, ModuleRpcResponse};
 
 pub trait ModuleRpcInbox {

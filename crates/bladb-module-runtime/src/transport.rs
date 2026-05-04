@@ -45,11 +45,7 @@ impl ModuleTransportServer {
         }
     }
 
-    pub fn run_cycles(
-        &self,
-        transport: &mut dyn ModuleRpcInbox,
-        cycles: usize,
-    ) -> ModuleRunStats {
+    pub fn run_cycles(&self, transport: &mut dyn ModuleRpcInbox, cycles: usize) -> ModuleRunStats {
         let mut total = ModuleRunStats {
             processed: 0,
             succeeded: 0,

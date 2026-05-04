@@ -10,9 +10,7 @@ pub use config::{
     AdapterBindingConfig, ModuleRuntimeConfig, ModuleRuntimeConfigFile, ModuleRuntimePlan,
     ModuleRuntimePlanError, NatsConnectionConfig, ServeConfig, TransportLoopConfig,
 };
-pub use registry::{
-    AdapterRegistry, ModuleAdapter, ModuleInvocation, ModuleRuntimeError,
-};
+pub use registry::{AdapterRegistry, ModuleAdapter, ModuleInvocation, ModuleRuntimeError};
 pub use runner::{ModuleRpcInbox, ModuleRunStats, ModuleRuntimeRunner};
 pub use service::{ModuleRuntimeService, ModuleRuntimeStatus};
 pub use transport::{ModuleTransportServer, ModuleTransportTick};

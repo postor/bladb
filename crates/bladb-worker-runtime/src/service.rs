@@ -230,7 +230,9 @@ mod tests {
                     topic: None,
                     queue: None,
                     table: None,
-                    key_template: Some("iot:{event.actor.tenantId}:devices:{event.payload.deviceId}:online".into()),
+                    key_template: Some(
+                        "iot:{event.actor.tenantId}:devices:{event.payload.deviceId}:online".into(),
+                    ),
                     delay_ms: None,
                 },
                 WorkerStep {

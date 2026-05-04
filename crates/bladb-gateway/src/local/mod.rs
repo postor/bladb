@@ -296,7 +296,10 @@ mod tests {
         );
         assert_eq!(orders_cluster["deployment"]["replicas"], 2);
         assert_eq!(orders_cluster["deployment"]["minReadySeconds"], 5);
-        assert_eq!(orders_cluster["deployment"]["rolling"]["maxUnavailable"], "0");
+        assert_eq!(
+            orders_cluster["deployment"]["rolling"]["maxUnavailable"],
+            "0"
+        );
         assert_eq!(orders_cluster["deployment"]["rolling"]["maxSurge"], "1");
         assert_eq!(orders_cluster["deployment"]["autoscale"]["minReplicas"], 2);
         assert_eq!(orders_cluster["deployment"]["autoscale"]["maxReplicas"], 8);
@@ -305,10 +308,7 @@ mod tests {
             70
         );
         assert_eq!(orders_cluster["routing"]["strategy"]["kind"], "hash");
-        assert_eq!(
-            orders_cluster["routing"]["strategy"]["virtualShards"],
-            64
-        );
+        assert_eq!(orders_cluster["routing"]["strategy"]["virtualShards"], 64);
         assert_eq!(orders_cluster["routing"]["routeBy"][0], "actor.tenantId");
         assert_eq!(orders_cluster["routing"]["sticky"], false);
     }
@@ -365,7 +365,9 @@ mod tests {
         assert_eq!(response["item"]["sku"], "camera-pro");
         assert_eq!(response["stock"], 420);
         assert_eq!(response["wallet"], 1280);
-        assert!(response["orders"].as_array().is_some_and(|orders| !orders.is_empty()));
+        assert!(response["orders"]
+            .as_array()
+            .is_some_and(|orders| !orders.is_empty()));
     }
 
     #[test]
@@ -442,6 +444,9 @@ mod tests {
         assert_eq!(response["deviceId"], "device-001");
         assert_eq!(response["action"], "reboot");
         assert_eq!(response["issuedBy"], "u_1001");
-        assert_eq!(response["topic"], "tenant/tenant_a/devices/device-001/commands");
+        assert_eq!(
+            response["topic"],
+            "tenant/tenant_a/devices/device-001/commands"
+        );
     }
 }

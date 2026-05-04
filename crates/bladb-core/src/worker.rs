@@ -212,9 +212,7 @@ fn default_min_replicas() -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        parse_worker_manifest, TriggerTransportKind, WorkerManifestError, WorkerTrigger,
-    };
+    use super::{parse_worker_manifest, TriggerTransportKind, WorkerManifestError, WorkerTrigger};
 
     #[test]
     fn flash_sale_worker_manifest_parses_from_real_fixture() {

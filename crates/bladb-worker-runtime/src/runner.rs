@@ -1,7 +1,4 @@
-use crate::{
-    service::WorkerRuntimeService,
-    WorkerExecutionError,
-};
+use crate::{service::WorkerRuntimeService, WorkerExecutionError};
 use bladb_core::bus::{WorkerExecutionReport, WorkerJob};
 
 pub trait WorkerJobInbox {
@@ -176,8 +173,7 @@ mod tests {
                     queue: None,
                     table: None,
                     key_template: Some(
-                        "iot:{event.actor.tenantId}:devices:{event.payload.deviceId}:online"
-                            .into(),
+                        "iot:{event.actor.tenantId}:devices:{event.payload.deviceId}:online".into(),
                     ),
                     delay_ms: None,
                 }],

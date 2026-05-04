@@ -154,7 +154,8 @@ mod tests {
             runtime: "sql".into(),
             data: json!([{ "id": "ord_01" }]),
         };
-        let response_value = serde_json::to_value(&response).expect("serialize module rpc response");
+        let response_value =
+            serde_json::to_value(&response).expect("serialize module rpc response");
         assert_eq!(response_value["runtime"], "sql");
     }
 

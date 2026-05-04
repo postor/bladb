@@ -67,13 +67,14 @@ mod tests {
 
     #[test]
     fn app_bootstraps_from_real_example_worker_runtime_config() {
-        let config = WorkerRuntimeConfig::from_path(workspace_root().join(
-            "apps/examples/flash-sale/runtime/order.payment-timeout-handler.runtime.yaml",
-        ))
-        .expect("load worker runtime config");
+        let config =
+            WorkerRuntimeConfig::from_path(workspace_root().join(
+                "apps/examples/flash-sale/runtime/order.payment-timeout-handler.runtime.yaml",
+            ))
+            .expect("load worker runtime config");
 
-        let app =
-            WorkerRuntimeApp::from_config(config, StepExecutorRegistry::new(vec![])).expect("bootstrap worker app");
+        let app = WorkerRuntimeApp::from_config(config, StepExecutorRegistry::new(vec![]))
+            .expect("bootstrap worker app");
         let status = app.status_json();
 
         assert_eq!(status["worker"], "order.payment-timeout-handler");

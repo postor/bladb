@@ -1,8 +1,4 @@
-use crate::{
-    config::WorkerLoopConfig,
-    runner::WorkerRuntimeRunner,
-    WorkerExecutionError,
-};
+use crate::{config::WorkerLoopConfig, runner::WorkerRuntimeRunner, WorkerExecutionError};
 use bladb_core::bus::{WorkerExecutionReport, WorkerJob};
 use std::{thread, time::Duration};
 
@@ -166,7 +162,7 @@ mod tests {
         },
     };
     use serde_json::json;
-    use std::{collections::VecDeque, time::Duration, sync::Arc};
+    use std::{collections::VecDeque, sync::Arc, time::Duration};
 
     struct RedisExecutor;
 
@@ -394,6 +390,22 @@ mod tests {
         assert!(transport.acked.is_empty());
         assert!(transport.retried.is_empty());
         assert_eq!(transport.dead_lettered, vec!["evt_03".to_string()]);
+    }
+
+    #[test]
+    fn consumer_terminally_acks_failures_when_no_dlq_is_configured() {
+        let consumer = consumer(Arc::new(FailingRedisExecutor), None);
+        let mut transport = MemoryTransport {
+            jobs: VecDeque::from(vec![job("evt_04", 3)]),
+            ..Default::default()
+        };
+
+        let tick = consumer.run_tick(&mut transport);
+        assert_eq!(tick.failed, 1);
+        assert_eq!(tick.acked, 1);
+        assert!(transport.retried.is_empty());
+        assert!(transport.dead_lettered.is_empty());
+        assert_eq!(transport.acked, vec!["evt_04".to_string()]);
     }
 
     #[test]

@@ -2,6 +2,9 @@ cluster: iot.commands-mqtt
 topology: ../topology/iot-realtime.topology.yaml
 nats:
   url: nats://nats.bladb.svc.cluster.local:4222
+transportLoop:
+  maxBatch: 256
+  idleSleepMs: 10
 serve:
   bindAddr: 0.0.0.0:9000
 adapter:

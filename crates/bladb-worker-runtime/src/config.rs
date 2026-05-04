@@ -111,19 +111,16 @@ pub struct WorkerSubscriptionPlan {
 impl WorkerRuntimeConfig {
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self, WorkerRuntimePlanError> {
         let path = path.as_ref();
-        let contents = fs::read_to_string(path).map_err(|error| WorkerRuntimePlanError::ConfigRead {
-            path: path.display().to_string(),
-            reason: error.to_string(),
-        })?;
+        let contents =
+            fs::read_to_string(path).map_err(|error| WorkerRuntimePlanError::ConfigRead {
+                path: path.display().to_string(),
+                reason: error.to_string(),
+            })?;
         let parsed = match path.extension().and_then(|extension| extension.to_str()) {
-            Some("json") => {
-                serde_json::from_str::<WorkerRuntimeConfigFile>(&contents).map_err(|error| {
-                    WorkerRuntimePlanError::ConfigParse(error.to_string())
-                })?
-            }
-            _ => serde_yaml::from_str::<WorkerRuntimeConfigFile>(&contents).map_err(|error| {
-                WorkerRuntimePlanError::ConfigParse(error.to_string())
-            })?,
+            Some("json") => serde_json::from_str::<WorkerRuntimeConfigFile>(&contents)
+                .map_err(|error| WorkerRuntimePlanError::ConfigParse(error.to_string()))?,
+            _ => serde_yaml::from_str::<WorkerRuntimeConfigFile>(&contents)
+                .map_err(|error| WorkerRuntimePlanError::ConfigParse(error.to_string()))?,
         };
         let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
         Ok(Self::from_file_config(parsed, base_dir))
@@ -190,11 +187,12 @@ impl WorkerRuntimeConfig {
     }
 
     pub fn build_plan(&self) -> Result<CompiledWorkerPlan, WorkerRuntimePlanError> {
-        let manifest_yaml =
-            fs::read_to_string(&self.manifest_path).map_err(|error| WorkerRuntimePlanError::ConfigRead {
+        let manifest_yaml = fs::read_to_string(&self.manifest_path).map_err(|error| {
+            WorkerRuntimePlanError::ConfigRead {
                 path: self.manifest_path.display().to_string(),
                 reason: error.to_string(),
-            })?;
+            }
+        })?;
         let manifest = parse_worker_manifest(&manifest_yaml)?;
         let worker = manifest
             .workers
@@ -218,7 +216,10 @@ impl WorkerRuntimeConfig {
     }
 }
 
-fn compile_worker_plan(worker: WorkerDefinition, config: &WorkerRuntimeConfig) -> CompiledWorkerPlan {
+fn compile_worker_plan(
+    worker: WorkerDefinition,
+    config: &WorkerRuntimeConfig,
+) -> CompiledWorkerPlan {
     let max_concurrency = config
         .overrides
         .max_concurrency
@@ -242,10 +243,13 @@ fn compile_worker_plan(worker: WorkerDefinition, config: &WorkerRuntimeConfig) -
         idempotency_key_from: worker.idempotency.key_from,
         retry_max_attempts: worker.retry.max_attempts,
         retry_backoff: worker.retry.backoff,
-        dead_letter_subject: worker
-            .dead_letter
-            .as_ref()
-            .and_then(|dead_letter| dead_letter.subject.clone().or(dead_letter.topic.clone()).or(dead_letter.queue.clone())),
+        dead_letter_subject: worker.dead_letter.as_ref().and_then(|dead_letter| {
+            dead_letter
+                .subject
+                .clone()
+                .or(dead_letter.topic.clone())
+                .or(dead_letter.queue.clone())
+        }),
         timeout_ms: worker.timeout_ms,
         deployment: worker.deployment,
         max_concurrency,
@@ -311,8 +315,8 @@ fn default_idle_sleep_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        CompiledWorkerPlan, WorkerRuntimeConfig, WorkerRuntimeConfigFile, WorkerRuntimeOverrides,
-        WorkerLoopConfig, WorkerRuntimePlanError,
+        CompiledWorkerPlan, WorkerLoopConfig, WorkerRuntimeConfig, WorkerRuntimeConfigFile,
+        WorkerRuntimeOverrides, WorkerRuntimePlanError,
     };
     use std::path::{Path, PathBuf};
 
@@ -345,7 +349,10 @@ mod tests {
             plan.subscription.subject.as_deref(),
             Some("queue.flashsale.order.payment.timeout")
         );
-        assert_eq!(plan.dead_letter_subject.as_deref(), Some("dlq.flashsale.order.payment.timeout"));
+        assert_eq!(
+            plan.dead_letter_subject.as_deref(),
+            Some("dlq.flashsale.order.payment.timeout")
+        );
         assert_eq!(plan.max_concurrency, 8);
         assert_eq!(plan.steps.len(), 3);
         assert_eq!(plan.worker_loop.max_batch, 16);
@@ -417,7 +424,10 @@ mod tests {
         };
 
         let error = config.build_plan().expect_err("expected unknown worker");
-        assert_eq!(error, WorkerRuntimePlanError::UnknownWorker("missing-worker".into()));
+        assert_eq!(
+            error,
+            WorkerRuntimePlanError::UnknownWorker("missing-worker".into())
+        );
     }
 
     #[test]
@@ -491,8 +501,7 @@ mod tests {
                     queue: None,
                     table: None,
                     key_template: Some(
-                        "iot:{event.actor.tenantId}:devices:{event.payload.deviceId}:online"
-                            .into(),
+                        "iot:{event.actor.tenantId}:devices:{event.payload.deviceId}:online".into(),
                     ),
                     delay_ms: None,
                 },

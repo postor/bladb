@@ -281,7 +281,7 @@ The repo now includes first-pass Kubernetes manifests in [deploy/k8s](/D:/study/
 Current production-shaped baseline:
 
 - `bladb-gateway` is deployable and horizontally scalable today
-- `bladb-module-runtime` and `bladb-worker-runtime` now have manifest-driven bootstrap code and tests, ready for transport-loop implementation
+- `bladb-module-runtime` and `bladb-worker-runtime` now have manifest-driven bootstrap code, typed transport shells, and unrun tests for loop/ack/retry/DLQ behavior
 - `NATS + JetStream` is the internal bus baseline
 - topology and worker manifests already reserve transport and deployment metadata for future split module and worker binaries
 
@@ -310,9 +310,16 @@ The important rule is that module runtimes receive the prepared request body, no
 The current split-runtime boundary is now:
 
 - `ModuleRuntimeService` validates internal RPC envelopes, then dispatches into backend adapters
-- `ModuleRuntimeRunner` drains typed RPC requests from an inbox abstraction that can later be backed by NATS request/reply
+- `ModuleRuntimeRunner` executes one RPC or a bounded batch, and `ModuleTransportServer` adds idle backoff and loop tuning for future NATS request/reply bindings
 - `WorkerRuntimeService` validates worker subscription metadata, then executes worker steps
-- `WorkerRuntimeRunner` drains typed worker jobs from an inbox abstraction that can later be backed by JetStream consumers
+- `WorkerRuntimeRunner` executes one job or a bounded batch, and `WorkerTransportConsumer` centralizes ack / retry / dead-letter / report behavior for future JetStream or Kafka bindings
+
+Runtime configs now also reserve loop tuning knobs so hot module and worker binaries can trade CPU wakeups for lower latency without changing application code:
+
+- `transportLoop.maxBatch`
+- `transportLoop.idleSleepMs`
+- `workerLoop.maxBatch`
+- `workerLoop.idleSleepMs`
 
 ## Policy examples
 

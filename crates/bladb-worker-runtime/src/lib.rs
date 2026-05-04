@@ -7,8 +7,8 @@ pub mod transport;
 
 pub use app::WorkerRuntimeApp;
 pub use config::{
-    CompiledWorkerPlan, WorkerRuntimeConfig, WorkerRuntimeConfigFile, WorkerRuntimePlanError,
-    WorkerLoopConfig, WorkerServeConfig,
+    CompiledWorkerPlan, WorkerLoopConfig, WorkerRuntimeConfig, WorkerRuntimeConfigFile,
+    WorkerRuntimePlanError, WorkerServeConfig,
 };
 pub use executor::{StepExecutor, StepExecutorRegistry, StepInvocation, WorkerExecutionError};
 pub use runner::{WorkerJobInbox, WorkerRunStats, WorkerRuntimeRunner};

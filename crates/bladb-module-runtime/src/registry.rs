@@ -74,7 +74,9 @@ mod tests {
         TransportLoopConfig,
     };
     use bladb_core::{
-        cluster::{DeploymentConfig, DiscoveryConfig, DiscoveryKind, ModuleCategory, TransportConfig},
+        cluster::{
+            DeploymentConfig, DiscoveryConfig, DiscoveryKind, ModuleCategory, TransportConfig,
+        },
         protocol::{Engine, GatewayRequest, RequestBody, RequestKind},
     };
     use serde_json::json;
@@ -143,7 +145,9 @@ mod tests {
             },
         };
 
-        let value = registry.execute(&invocation).expect("execute through adapter");
+        let value = registry
+            .execute(&invocation)
+            .expect("execute through adapter");
         assert_eq!(value["cluster"], "flashsale.orders-sql");
         assert_eq!(value["runtime"], "sql");
         assert_eq!(value["action"], "select");

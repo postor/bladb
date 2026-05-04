@@ -66,8 +66,8 @@ mod tests {
         )
         .expect("load module runtime config");
 
-        let app =
-            ModuleRuntimeApp::from_config(config, AdapterRegistry::new(vec![])).expect("bootstrap module app");
+        let app = ModuleRuntimeApp::from_config(config, AdapterRegistry::new(vec![]))
+            .expect("bootstrap module app");
         let status = app.status_json();
 
         assert_eq!(status["cluster"], "flashsale.orders-sql");

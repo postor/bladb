@@ -1,6 +1,9 @@
 worker: telemetry.alert-evaluator
 manifest: ../workers/iot-realtime.workers.yaml
 natsUrl: nats://nats.bladb.svc.cluster.local:4222
+workerLoop:
+  maxBatch: 128
+  idleSleepMs: 10
 serve:
   metricsBindAddr: 0.0.0.0:9091
 overrides:

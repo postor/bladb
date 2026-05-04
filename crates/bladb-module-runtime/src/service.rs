@@ -2,8 +2,8 @@ use crate::{
     config::ModuleRuntimePlan,
     registry::{AdapterRegistry, ModuleInvocation, ModuleRuntimeError},
 };
-use bladb_core::cluster::TransportProtocol;
 use bladb_core::bus::{ModuleRpcRequest, ModuleRpcResponse};
+use bladb_core::cluster::TransportProtocol;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -145,9 +145,7 @@ fn transport_protocol_label(protocol: &TransportProtocol) -> &'static str {
 mod tests {
     use super::ModuleRuntimeService;
     use crate::{
-        config::{
-            AdapterBindingConfig, ModuleRuntimePlan, NatsConnectionConfig, ServeConfig,
-        },
+        config::{AdapterBindingConfig, ModuleRuntimePlan, NatsConnectionConfig, ServeConfig},
         registry::{AdapterRegistry, ModuleAdapter, ModuleRuntimeError},
     };
     use bladb_core::{
@@ -245,7 +243,8 @@ mod tests {
 
     #[test]
     fn service_handles_matching_rpc_request() {
-        let service = ModuleRuntimeService::new(plan(), AdapterRegistry::new(vec![Arc::new(SqlAdapter)]));
+        let service =
+            ModuleRuntimeService::new(plan(), AdapterRegistry::new(vec![Arc::new(SqlAdapter)]));
         let request = ModuleRpcRequest {
             trace_id: "trace_01".into(),
             policy: "flashsale.orders.read-mine".into(),
@@ -292,7 +291,8 @@ mod tests {
 
     #[test]
     fn service_rejects_wrong_cluster_requests() {
-        let service = ModuleRuntimeService::new(plan(), AdapterRegistry::new(vec![Arc::new(SqlAdapter)]));
+        let service =
+            ModuleRuntimeService::new(plan(), AdapterRegistry::new(vec![Arc::new(SqlAdapter)]));
         let request = ModuleRpcRequest {
             trace_id: "trace_01".into(),
             policy: "flashsale.orders.read-mine".into(),
@@ -343,7 +343,8 @@ mod tests {
 
     #[test]
     fn service_rejects_mismatched_prepared_body() {
-        let service = ModuleRuntimeService::new(plan(), AdapterRegistry::new(vec![Arc::new(SqlAdapter)]));
+        let service =
+            ModuleRuntimeService::new(plan(), AdapterRegistry::new(vec![Arc::new(SqlAdapter)]));
         let request = ModuleRpcRequest {
             trace_id: "trace_01".into(),
             policy: "flashsale.orders.read-mine".into(),

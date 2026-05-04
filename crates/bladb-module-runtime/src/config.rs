@@ -106,21 +106,16 @@ pub struct ModuleRuntimePlan {
 impl ModuleRuntimeConfig {
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self, ModuleRuntimePlanError> {
         let path = path.as_ref();
-        let contents = fs::read_to_string(path).map_err(|error| {
-            ModuleRuntimePlanError::ConfigRead {
+        let contents =
+            fs::read_to_string(path).map_err(|error| ModuleRuntimePlanError::ConfigRead {
                 path: path.display().to_string(),
                 reason: error.to_string(),
-            }
-        })?;
+            })?;
         let parsed = match path.extension().and_then(|extension| extension.to_str()) {
-            Some("json") => {
-                serde_json::from_str::<ModuleRuntimeConfigFile>(&contents).map_err(|error| {
-                    ModuleRuntimePlanError::ConfigParse(error.to_string())
-                })?
-            }
-            _ => serde_yaml::from_str::<ModuleRuntimeConfigFile>(&contents).map_err(|error| {
-                ModuleRuntimePlanError::ConfigParse(error.to_string())
-            })?,
+            Some("json") => serde_json::from_str::<ModuleRuntimeConfigFile>(&contents)
+                .map_err(|error| ModuleRuntimePlanError::ConfigParse(error.to_string()))?,
+            _ => serde_yaml::from_str::<ModuleRuntimeConfigFile>(&contents)
+                .map_err(|error| ModuleRuntimePlanError::ConfigParse(error.to_string()))?,
         };
         let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
         Ok(Self::from_file_config(parsed, base_dir))
@@ -192,9 +187,11 @@ impl ModuleRuntimeConfig {
     }
 
     pub fn load_topology_yaml(&self) -> Result<String, ModuleRuntimePlanError> {
-        fs::read_to_string(&self.topology_path).map_err(|error| ModuleRuntimePlanError::ConfigRead {
-            path: self.topology_path.display().to_string(),
-            reason: error.to_string(),
+        fs::read_to_string(&self.topology_path).map_err(|error| {
+            ModuleRuntimePlanError::ConfigRead {
+                path: self.topology_path.display().to_string(),
+                reason: error.to_string(),
+            }
         })
     }
 
@@ -346,8 +343,17 @@ mod tests {
         assert_eq!(plan.cluster, "flashsale.orders-sql");
         assert_eq!(plan.runtime, "sql");
         assert_eq!(plan.discovery.service, "bladb-module-orders");
-        assert_eq!(plan.transport.subject.as_deref(), Some("rpc.flashsale.orders"));
-        assert_eq!(plan.deployment.autoscale.as_ref().map(|value| value.max_replicas), Some(8));
+        assert_eq!(
+            plan.transport.subject.as_deref(),
+            Some("rpc.flashsale.orders")
+        );
+        assert_eq!(
+            plan.deployment
+                .autoscale
+                .as_ref()
+                .map(|value| value.max_replicas),
+            Some(8)
+        );
         assert_eq!(plan.transport_loop.max_batch, 32);
         assert_eq!(plan.transport_loop.idle_sleep_ms, 10);
     }
@@ -364,7 +370,9 @@ mod tests {
             adapter: AdapterBindingConfig::default(),
         };
 
-        let error = config.build_plan().expect_err("expected unsupported category");
+        let error = config
+            .build_plan()
+            .expect_err("expected unsupported category");
         assert_eq!(
             error,
             ModuleRuntimePlanError::UnsupportedCategory {
@@ -395,7 +403,9 @@ mod tests {
         assert_eq!(config.cluster, "iot.commands-mqtt");
         assert_eq!(
             config.topology_path,
-            PathBuf::from("D:/study/bladb/apps/examples/iot-realtime/topology/iot-realtime.topology.yaml")
+            PathBuf::from(
+                "D:/study/bladb/apps/examples/iot-realtime/topology/iot-realtime.topology.yaml"
+            )
         );
         assert_eq!(config.serve.bind_addr, "0.0.0.0:9100");
         assert_eq!(config.transport_loop.max_batch, 128);

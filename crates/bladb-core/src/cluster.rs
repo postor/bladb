@@ -301,8 +301,7 @@ fn validate_deployment(cluster: &ModuleClusterDefinition) -> Result<(), Topology
         if autoscale.max_replicas < autoscale.min_replicas {
             return Err(TopologyManifestError::InvalidDeployment {
                 cluster: cluster.name.clone(),
-                reason: "autoscale maxReplicas must be greater than or equal to minReplicas"
-                    .into(),
+                reason: "autoscale maxReplicas must be greater than or equal to minReplicas".into(),
             });
         }
     }
@@ -349,8 +348,7 @@ fn validate_routing(cluster: &ModuleClusterDefinition) -> Result<(), TopologyMan
 mod tests {
     use super::{
         parse_topology_manifest, ConsistencyMode, DiscoveryKind, ModuleCategory, RoutingStrategy,
-        TransportProtocol,
-        TopologyManifestError,
+        TopologyManifestError, TransportProtocol,
     };
 
     #[test]

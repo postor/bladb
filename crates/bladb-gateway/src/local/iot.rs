@@ -342,10 +342,7 @@ impl AppApiHandler for IotModule {
                             && device.tenant_id == session.user.tenant_id
                     })
                     .ok_or_else(|| AppError::not_found("device not found for current session"))?;
-                let topic = format!(
-                    "tenant/{}/devices/{}/commands",
-                    device.tenant_id, device.id
-                );
+                let topic = format!("tenant/{}/devices/{}/commands", device.tenant_id, device.id);
 
                 Self::publish_command_record(
                     &mut state,
