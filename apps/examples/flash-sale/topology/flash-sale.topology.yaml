@@ -1,0 +1,145 @@
+moduleClusters:
+  - name: flashsale.catalog-mongo
+    category: data
+    runtime: mongo
+    policies:
+      - flashsale.items.find
+    discovery:
+      kind: service
+      service: bladb-module-catalog
+      namespace: bladb
+    transport:
+      protocol: natsService
+      subject: rpc.flashsale.catalog
+      queueGroup: bladb.flashsale.catalog
+    routing:
+      strategy:
+        kind: hash
+        virtualShards: 64
+      routeBy:
+        - actor.tenantId
+    consistency:
+      reads: replicaPreferred
+      writes: quorum
+    failover:
+      mode: retryOtherReplica
+      maxAttempts: 2
+    deployment:
+      replicas: 2
+      minReadySeconds: 5
+      rolling:
+        maxUnavailable: 0
+        maxSurge: 1
+      autoscale:
+        minReplicas: 2
+        maxReplicas: 6
+        targetCpuUtilization: 70
+
+  - name: flashsale.orders-sql
+    category: data
+    runtime: sql
+    policies:
+      - flashsale.orders.read-mine
+      - flashsale.orders.create
+    discovery:
+      kind: service
+      service: bladb-module-orders
+      namespace: bladb
+    transport:
+      protocol: natsService
+      subject: rpc.flashsale.orders
+      queueGroup: bladb.flashsale.orders
+    routing:
+      strategy:
+        kind: hash
+        virtualShards: 64
+      routeBy:
+        - actor.tenantId
+    consistency:
+      reads: primary
+      writes: quorum
+    failover:
+      mode: retryOtherReplica
+      maxAttempts: 2
+    deployment:
+      replicas: 2
+      minReadySeconds: 5
+      rolling:
+        maxUnavailable: 0
+        maxSurge: 1
+      autoscale:
+        minReplicas: 2
+        maxReplicas: 8
+        targetCpuUtilization: 70
+
+  - name: flashsale.stock-redis
+    category: data
+    runtime: redis
+    policies:
+      - flashsale.stock.read
+      - flashsale.stock.decr
+      - flashsale.wallet.read
+    discovery:
+      kind: service
+      service: bladb-module-stock
+      namespace: bladb
+    transport:
+      protocol: natsService
+      subject: rpc.flashsale.stock
+      queueGroup: bladb.flashsale.stock
+    routing:
+      strategy:
+        kind: hash
+        virtualShards: 128
+      routeBy:
+        - request.meta.params.sku
+      sticky: true
+    consistency:
+      reads: primary
+      writes: primary
+    failover:
+      mode: retrySameNode
+      maxAttempts: 1
+    deployment:
+      replicas: 3
+      minReadySeconds: 5
+      rolling:
+        maxUnavailable: 1
+        maxSurge: 1
+      autoscale:
+        minReplicas: 3
+        maxReplicas: 12
+        targetCpuUtilization: 65
+
+  - name: flashsale.workflow-workers
+    category: worker
+    runtime: worker
+    policies: []
+    discovery:
+      kind: service
+      service: bladb-worker-flashsale
+      namespace: bladb
+    transport:
+      protocol: jetStream
+      stream: BLADB_FLASHSALE_EVENTS
+      subject: events.flashsale.>
+      durable: flashsale-workers
+    routing:
+      strategy:
+        kind: single
+    consistency:
+      reads: local
+      writes: local
+    failover:
+      mode: retryOtherZone
+      maxAttempts: 3
+    deployment:
+      replicas: 2
+      minReadySeconds: 5
+      rolling:
+        maxUnavailable: 1
+        maxSurge: 1
+      autoscale:
+        minReplicas: 2
+        maxReplicas: 10
+        targetQueueDepth: 200

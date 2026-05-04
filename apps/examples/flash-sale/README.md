@@ -1,6 +1,6 @@
 # Flash Sale Design
 
-This example is meant to show how Bladb can keep frontend code close to native SQL and Redis usage while moving complex cross-module coordination into events and workers.
+This example is meant to show how Bladb can keep the frontend path short while moving complex cross-module coordination into events and workers.
 
 ## Primary modules
 
@@ -16,12 +16,11 @@ This example is meant to show how Bladb can keep frontend code close to native S
   - item snapshots
   - operator dashboards
   - replay-friendly event projections
-- `kafka` or `redis-streams`
+- `nats + jetstream`
   - order-created events
   - stock-low events
-- `mq`
-  - delayed payment timeout jobs
-  - notification jobs
+  - durable retry lanes
+  - payment timeout scheduling
 
 ## Synchronous path
 
@@ -36,6 +35,16 @@ The request path exposed to the frontend should stay short:
 
 The frontend should not coordinate follow-up actions itself.
 
+In the current example app, the browser reads a module-owned summary API first, then uses queue APIs for the purchase workflow:
+
+```txt
+GET /apps/flash-sale/summary
+POST /apps/flash-sale/queue
+GET /apps/flash-sale/queue/:ticketId
+```
+
+That keeps item, stock, wallet, and recent-order aggregation on the Rust side while preserving lower-level SQL and Redis policy fixtures underneath.
+
 ## Asynchronous path
 
 After the synchronous path completes, Bladb should emit:
@@ -46,7 +55,7 @@ After the synchronous path completes, Bladb should emit:
 Those events can be handled by workers that:
 
 - build analytics projections in `mongo`
-- schedule payment timeout jobs in `mq`
+- schedule payment timeout jobs in `jetstream`
 - send notifications
 - trigger recommendation or fraud pipelines
 
@@ -59,9 +68,9 @@ Recommended workers for this example:
   - writes order snapshot to `mongo`
 - `order.payment-timeout-scheduler`
   - trigger: `order.created`
-  - publishes delayed job to `mq`
+  - publishes delayed job to `nats`
 - `order.payment-timeout-handler`
-  - trigger: delayed timeout job
+  - trigger: delayed timeout subject or retry stream
   - cancels unpaid order
   - restores stock in `redis`
   - emits `order.cancelled`
@@ -72,3 +81,21 @@ Recommended workers for this example:
 ## Why this split matters
 
 This keeps the high-concurrency purchase path cheap while still allowing the platform to coordinate multiple backends safely.
+
+The official internal service path for this example is now:
+
+- gateway -> module RPC through `natsService`
+- domain events through `JetStream`
+- worker scaling from queue depth and CPU on Kubernetes
+
+There is also a gateway dry-run fixture for the user-scoped order read:
+
+```txt
+cargo run -p bladb-gateway -- apps/examples/flash-sale/policies/flash-sale.policy.yaml apps/examples/flash-sale/gateway/request.orders-read.json apps/examples/flash-sale/gateway/auth.buyer.json
+```
+
+The local example stack is served by the shared gateway binary with:
+
+```txt
+cargo run -p bladb-gateway -- serve 127.0.0.1:8787 apps/examples/gateway/local-gateway.yaml
+```

@@ -1,0 +1,12 @@
+services:
+  gateway:
+    ports:
+      - "127.0.0.1:8787:8787"
+
+  flash-sale:
+    ports:
+      - "127.0.0.1:4173:80"
+
+  iot-realtime:
+    ports:
+      - "127.0.0.1:4174:80"

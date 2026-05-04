@@ -1,3 +1,12 @@
+import type {
+  AuthCommands,
+  BrowserAuthModule,
+  BrowserSessionStore,
+  GatewaySession,
+  LoginInput,
+  RegisterInput
+} from "@bladb/client";
+import { createBrowserAuthModule as createManagedAuth } from "@bladb/client";
 import { useEffect, useRef, useState } from "react";
 
 export interface QueryState<T> {
@@ -89,4 +98,133 @@ export function useLiveValue<T>(
   }, deps);
 
   return query;
+}
+
+export interface GatewaySessionState<TSession extends GatewaySession = GatewaySession> {
+  session: TSession | null;
+  error: Error | null;
+  loading: boolean;
+  ready: boolean;
+  login: (input: LoginInput) => Promise<TSession>;
+  register: (input: RegisterInput) => Promise<TSession>;
+  refresh: () => Promise<TSession | null>;
+  logout: () => void;
+}
+
+function resolveBrowserAuthModule<TSession extends GatewaySession>(
+  auth: AuthCommands | BrowserAuthModule<TSession>,
+  store?: BrowserSessionStore<TSession>
+): BrowserAuthModule<TSession> {
+  if (store === undefined) {
+    return auth as BrowserAuthModule<TSession>;
+  }
+
+  return createManagedAuth(auth, store);
+}
+
+export function useGatewaySession<TSession extends GatewaySession>(
+  auth: BrowserAuthModule<TSession>
+): GatewaySessionState<TSession>;
+export function useGatewaySession<TSession extends GatewaySession>(
+  auth: AuthCommands,
+  store: BrowserSessionStore<TSession>
+): GatewaySessionState<TSession>;
+export function useGatewaySession<TSession extends GatewaySession>(
+  auth: AuthCommands | BrowserAuthModule<TSession>,
+  store?: BrowserSessionStore<TSession>
+): GatewaySessionState<TSession> {
+  const browserAuth = resolveBrowserAuthModule(auth, store);
+  const [session, setSession] = useState<TSession | null>(() => browserAuth.read());
+  const [error, setError] = useState<Error | null>(null);
+  const [loading, setLoading] = useState<boolean>(() => Boolean(browserAuth.getToken()));
+  const [ready, setReady] = useState<boolean>(() => !browserAuth.getToken());
+
+  const login = async (input: LoginInput): Promise<TSession> => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const nextSession = await browserAuth.login(input);
+      setSession(nextSession);
+      return nextSession;
+    } catch (caught) {
+      const nextError = caught instanceof Error ? caught : new Error("Unknown login error");
+      setError(nextError);
+      throw nextError;
+    } finally {
+      setLoading(false);
+      setReady(true);
+    }
+  };
+
+  const register = async (input: RegisterInput): Promise<TSession> => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const nextSession = await browserAuth.register(input);
+      setSession(nextSession);
+      return nextSession;
+    } catch (caught) {
+      const nextError = caught instanceof Error ? caught : new Error("Unknown register error");
+      setError(nextError);
+      throw nextError;
+    } finally {
+      setLoading(false);
+      setReady(true);
+    }
+  };
+
+  const refresh = async (): Promise<TSession | null> => {
+    const token = browserAuth.getToken();
+    if (!token) {
+      setSession(null);
+      setReady(true);
+      return null;
+    }
+
+    setLoading(true);
+
+    try {
+      const nextSession = await browserAuth.refresh();
+      setSession(nextSession);
+      setError(null);
+      return nextSession;
+    } catch (caught) {
+      const nextError = caught instanceof Error ? caught : new Error("Unknown refresh error");
+      setError(nextError);
+      setSession(null);
+      return null;
+    } finally {
+      setLoading(false);
+      setReady(true);
+    }
+  };
+
+  const logout = () => {
+    setError(null);
+    browserAuth.logout();
+    setSession(null);
+    setReady(true);
+  };
+
+  useEffect(() => {
+    if (!browserAuth.getToken()) {
+      setReady(true);
+      return;
+    }
+
+    void refresh();
+  }, []);
+
+  return {
+    session,
+    error,
+    loading,
+    ready,
+    login,
+    register,
+    refresh,
+    logout
+  };
 }

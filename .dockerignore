@@ -1,0 +1,10 @@
+.git
+.gitignore
+node_modules
+apps/examples/flash-sale/node_modules
+apps/examples/iot-realtime/node_modules
+apps/examples/flash-sale/dist
+apps/examples/iot-realtime/dist
+target
+tmp-dev-examples.out.log
+tmp-dev-examples.err.log

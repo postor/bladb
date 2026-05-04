@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bladb-worker-flashsale
+  namespace: bladb
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bladb-worker-flashsale
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bladb-worker-flashsale
+        bladb.io/cluster: flashsale.workflow-workers
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/bladb/bladb-worker-runtime:latest
+          args:
+            - serve
+          env:
+            - name: BLADB_WORKER_NAME
+              value: order.payment-timeout-handler
+            - name: BLADB_WORKER_MANIFEST
+              value: /etc/bladb/workers/flash-sale.workers.yaml
+            - name: BLADB_NATS_URL
+              value: nats://nats.bladb.svc.cluster.local:4222
+            - name: BLADB_WORKER_LABEL_APP
+              value: flashsale-workers
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: worker-manifest
+              mountPath: /etc/bladb/workers
+              readOnly: true
+      volumes:
+        - name: worker-manifest
+          configMap:
+            name: flash-sale-workers
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: bladb-worker-flashsale
+  namespace: bladb
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: bladb-worker-flashsale
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

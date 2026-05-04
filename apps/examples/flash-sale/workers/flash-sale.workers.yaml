@@ -3,7 +3,11 @@ workers:
     trigger:
       type: event
       topic: order.created
-      backend: kafka
+      transport:
+        kind: jetStream
+        stream: BLADB_FLASHSALE_EVENTS
+        consumer: flashsale-order-analytics
+        subject: events.flashsale.order.created
     source: sql.orders
     identity:
       mode: inherit-actor
@@ -13,19 +17,28 @@ workers:
       maxAttempts: 5
       backoff: exponential
     timeoutMs: 15000
+    deployment:
+      minReplicas: 2
+      maxReplicas: 8
+      maxConcurrency: 32
+      rollingMaxUnavailable: 1
     steps:
       - use: mongo
         action: upsert
         collection: order_snapshots
-      - use: kafka
+      - use: nats
         action: produce
-        topic: analytics.order.created
+        topic: events.flashsale.analytics.order.created
 
   - name: order.payment-timeout-scheduler
     trigger:
       type: event
       topic: order.created
-      backend: kafka
+      transport:
+        kind: jetStream
+        stream: BLADB_FLASHSALE_EVENTS
+        consumer: flashsale-payment-timeout-scheduler
+        subject: events.flashsale.order.created
     source: sql.orders
     identity:
       mode: system
@@ -36,17 +49,26 @@ workers:
       maxAttempts: 3
       backoff: exponential
     timeoutMs: 8000
+    deployment:
+      minReplicas: 1
+      maxReplicas: 10
+      maxConcurrency: 16
+      rollingMaxUnavailable: 1
     steps:
-      - use: mq
+      - use: nats
         action: publishDelayed
-        queue: order.payment.timeout
+        queue: queue.flashsale.order.payment.timeout
         delayMs: 900000
 
   - name: order.payment-timeout-handler
     trigger:
       type: queue
-      queue: order.payment.timeout
-      backend: mq
+      queue: queue.flashsale.order.payment.timeout
+      transport:
+        kind: jetStream
+        stream: BLADB_FLASHSALE_JOBS
+        consumer: flashsale-payment-timeout-handler
+        subject: queue.flashsale.order.payment.timeout
     source: mq.order.payment.timeout
     identity:
       mode: system
@@ -57,8 +79,13 @@ workers:
       maxAttempts: 10
       backoff: exponential
     deadLetter:
-      queue: order.payment.timeout.dlq
+      subject: dlq.flashsale.order.payment.timeout
     timeoutMs: 20000
+    deployment:
+      minReplicas: 1
+      maxReplicas: 10
+      maxConcurrency: 8
+      rollingMaxUnavailable: 1
     steps:
       - use: sql
         action: conditionalUpdate
@@ -66,6 +93,6 @@ workers:
       - use: redis
         action: incrby
         keyTemplate: "flashsale:{job.payload.sku}:stock"
-      - use: kafka
+      - use: nats
         action: produce
-        topic: order.cancelled
+        topic: events.flashsale.order.cancelled

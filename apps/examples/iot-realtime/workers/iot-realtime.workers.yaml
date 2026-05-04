@@ -3,7 +3,11 @@ workers:
     trigger:
       type: event
       topic: telemetry.received
-      backend: kafka
+      transport:
+        kind: jetStream
+        stream: BLADB_IOT_EVENTS
+        consumer: iot-telemetry-latest-projector
+        subject: events.iot.telemetry.received
     source: mqtt.devices.telemetry
     identity:
       mode: inherit-actor
@@ -13,6 +17,11 @@ workers:
       maxAttempts: 5
       backoff: exponential
     timeoutMs: 12000
+    deployment:
+      minReplicas: 2
+      maxReplicas: 12
+      maxConcurrency: 32
+      rollingMaxUnavailable: 1
     steps:
       - use: mongo
         action: upsert
@@ -22,7 +31,11 @@ workers:
     trigger:
       type: event
       topic: telemetry.received
-      backend: kafka
+      transport:
+        kind: jetStream
+        stream: BLADB_IOT_EVENTS
+        consumer: iot-telemetry-counter-updater
+        subject: events.iot.telemetry.received
     source: mqtt.devices.telemetry
     identity:
       mode: system
@@ -33,6 +46,11 @@ workers:
       maxAttempts: 5
       backoff: exponential
     timeoutMs: 5000
+    deployment:
+      minReplicas: 2
+      maxReplicas: 15
+      maxConcurrency: 64
+      rollingMaxUnavailable: 1
     steps:
       - use: redis
         action: setOnlineState
@@ -45,7 +63,11 @@ workers:
     trigger:
       type: event
       topic: telemetry.received
-      backend: kafka
+      transport:
+        kind: jetStream
+        stream: BLADB_IOT_EVENTS
+        consumer: iot-telemetry-alert-evaluator
+        subject: events.iot.telemetry.received
     source: mqtt.devices.telemetry
     identity:
       mode: system
@@ -56,12 +78,17 @@ workers:
       maxAttempts: 8
       backoff: exponential
     deadLetter:
-      topic: telemetry.alert-evaluator.dlq
+      subject: dlq.iot.telemetry.alert-evaluator
     timeoutMs: 10000
+    deployment:
+      minReplicas: 2
+      maxReplicas: 20
+      maxConcurrency: 32
+      rollingMaxUnavailable: 1
     steps:
-      - use: kafka
+      - use: nats
         action: conditionalProduce
-        topic: device.alert.raised
+        topic: events.iot.device.alert.raised
       - use: mongo
         action: insertOne
         collection: alert_history

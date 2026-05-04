@@ -36,8 +36,8 @@ policies:
 
   - name: iot.device-command.publish
     match:
-      engine: redis
-      command: publish
+      engine: mqtt
+      action: publish
     enforce:
-      key:
-        template: "iot:{TENANT_ID}:devices:{args.deviceId}:commands"
+      topic:
+        template: "tenant/{TENANT_ID}/devices/{args.deviceId}/commands"

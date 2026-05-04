@@ -1,0 +1,24 @@
+{
+  "kind": "stream",
+  "engine": "mqtt",
+  "action": "publish",
+  "meta": {
+    "policy": "iot.device-command.publish",
+    "resource": "device.command",
+    "params": {
+      "deviceId": "device-001"
+    }
+  },
+  "topic": {
+    "$template": "key",
+    "parts": ["tenant/", "/devices/", "/commands"],
+    "values": [
+      { "$ctx": "tenantId", "token": "TENANT_ID" },
+      "{args.deviceId}"
+    ]
+  },
+  "payload": {
+    "action": "reboot",
+    "issuedBy": { "$ctx": "uid", "token": "UID" }
+  }
+}

@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bladb-module-orders
+  namespace: bladb
+spec:
+  selector:
+    app.kubernetes.io/name: bladb-module-orders
+  ports:
+    - name: rpc
+      port: 9000
+      targetPort: rpc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bladb-module-orders
+  namespace: bladb
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bladb-module-orders
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bladb-module-orders
+        bladb.io/cluster: flashsale.orders-sql
+    spec:
+      containers:
+        - name: runtime
+          image: ghcr.io/bladb/bladb-module-runtime:latest
+          args:
+            - serve
+          env:
+            - name: BLADB_CLUSTER_NAME
+              value: flashsale.orders-sql
+            - name: BLADB_TOPOLOGY_PATH
+              value: /etc/bladb/topology/flash-sale.topology.yaml
+            - name: BLADB_NATS_URL
+              value: nats://nats.bladb.svc.cluster.local:4222
+            - name: BLADB_ADAPTER_RUNTIME
+              value: sql
+            - name: BLADB_ADAPTER_ENDPOINT
+              value: postgres://orders@postgres.orders.svc.cluster.local/orders
+            - name: BLADB_ADAPTER_DATABASE
+              value: orders
+          ports:
+            - name: rpc
+              containerPort: 9000
+          readinessProbe:
+            tcpSocket:
+              port: rpc
+          livenessProbe:
+            tcpSocket:
+              port: rpc
+          volumeMounts:
+            - name: topology
+              mountPath: /etc/bladb/topology
+              readOnly: true
+      volumes:
+        - name: topology
+          configMap:
+            name: flash-sale-topology
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: bladb-module-orders
+  namespace: bladb
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: bladb-module-orders
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

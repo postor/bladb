@@ -3,6 +3,9 @@ dist/
 .vite/
 coverage/
 target/
+.run-logs/
 .DS_Store
 .env
 .env.*
+tmp-dev-examples.out.log
+tmp-dev-examples.err.log

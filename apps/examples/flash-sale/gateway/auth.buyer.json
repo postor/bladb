@@ -1,0 +1,6 @@
+{
+  "uid": "u_2001",
+  "tenantId": "tenant_flashsale",
+  "roles": ["buyer"],
+  "permissionVersion": "v1"
+}

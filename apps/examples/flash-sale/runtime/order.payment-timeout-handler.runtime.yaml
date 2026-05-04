@@ -1,0 +1,8 @@
+worker: order.payment-timeout-handler
+manifest: ../workers/flash-sale.workers.yaml
+natsUrl: nats://nats.bladb.svc.cluster.local:4222
+serve:
+  metricsBindAddr: 0.0.0.0:9091
+overrides:
+  labels:
+    app: flashsale-workers

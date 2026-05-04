@@ -1,0 +1,6 @@
+{
+  "uid": "u_1001",
+  "tenantId": "tenant_a",
+  "roles": ["operator"],
+  "permissionVersion": "v1"
+}

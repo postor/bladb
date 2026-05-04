@@ -1,0 +1,11 @@
+cluster: iot.commands-mqtt
+topology: ../topology/iot-realtime.topology.yaml
+nats:
+  url: nats://nats.bladb.svc.cluster.local:4222
+serve:
+  bindAddr: 0.0.0.0:9000
+adapter:
+  runtime: mqtt
+  endpoint: mqtt://emqx.iot.svc.cluster.local:1883
+  options:
+    clientId: bladb-iot-commands

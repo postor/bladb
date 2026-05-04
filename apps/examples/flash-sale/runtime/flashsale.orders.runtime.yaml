@@ -1,0 +1,10 @@
+cluster: flashsale.orders-sql
+topology: ../topology/flash-sale.topology.yaml
+nats:
+  url: nats://nats.bladb.svc.cluster.local:4222
+serve:
+  bindAddr: 0.0.0.0:9000
+adapter:
+  runtime: sql
+  endpoint: postgres://orders@postgres.orders.svc.cluster.local/orders
+  database: orders

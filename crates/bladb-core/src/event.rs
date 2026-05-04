@@ -22,6 +22,10 @@ pub struct EventEnvelope {
     pub event_type: String,
     pub source: String,
     pub trace_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partition_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ordering_key: Option<String>,
     pub actor: ActorContext,
     pub payload: Value,
 }
@@ -44,6 +48,8 @@ mod tests {
             event_type: "order.created".into(),
             source: "sql.orders".into(),
             trace_id: "trace_01".into(),
+            partition_key: Some("tenant_a:camera-pro".into()),
+            ordering_key: Some("ord_01".into()),
             actor: ActorContext {
                 kind: "user".into(),
                 uid: Some("u_1001".into()),
@@ -60,6 +66,8 @@ mod tests {
         let serialized = serde_json::to_value(&envelope).expect("serialize event");
         assert_eq!(serialized["eventId"], "evt_01");
         assert_eq!(serialized["eventType"], "order.created");
+        assert_eq!(serialized["partitionKey"], "tenant_a:camera-pro");
+        assert_eq!(serialized["orderingKey"], "ord_01");
         assert_eq!(serialized["actor"]["tenantId"], "tenant_a");
 
         let round_trip: EventEnvelope =

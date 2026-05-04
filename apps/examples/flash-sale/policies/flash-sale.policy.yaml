@@ -24,6 +24,15 @@ policies:
         allowPrefixes:
           - "flashsale:"
 
+  - name: flashsale.stock.decr
+    match:
+      engine: redis
+      command: decrby
+    enforce:
+      key:
+        allowPrefixes:
+          - "flashsale:"
+
   - name: flashsale.wallet.read
     match:
       engine: redis

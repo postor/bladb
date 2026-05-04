@@ -19,14 +19,41 @@ pub struct WorkerDefinition {
     #[serde(default)]
     pub dead_letter: Option<DeadLetterConfig>,
     pub timeout_ms: u64,
+    #[serde(default)]
+    pub deployment: WorkerDeploymentConfig,
     pub steps: Vec<WorkerStep>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum WorkerTrigger {
-    Event { topic: String, backend: String },
-    Queue { queue: String, backend: String },
+    Event {
+        topic: String,
+        transport: TriggerTransportConfig,
+    },
+    Queue {
+        queue: String,
+        transport: TriggerTransportConfig,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerTransportConfig {
+    pub kind: TriggerTransportKind,
+    #[serde(default)]
+    pub stream: Option<String>,
+    #[serde(default)]
+    pub consumer: Option<String>,
+    #[serde(default)]
+    pub subject: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TriggerTransportKind {
+    JetStream,
+    Broker,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,6 +83,32 @@ pub struct DeadLetterConfig {
     pub queue: Option<String>,
     #[serde(default)]
     pub topic: Option<String>,
+    #[serde(default)]
+    pub subject: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkerDeploymentConfig {
+    #[serde(default = "default_min_replicas")]
+    pub min_replicas: u16,
+    #[serde(default)]
+    pub max_replicas: Option<u16>,
+    #[serde(default)]
+    pub max_concurrency: Option<u16>,
+    #[serde(default)]
+    pub rolling_max_unavailable: Option<String>,
+}
+
+impl Default for WorkerDeploymentConfig {
+    fn default() -> Self {
+        Self {
+            min_replicas: default_min_replicas(),
+            max_replicas: None,
+            max_concurrency: None,
+            rolling_max_unavailable: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,11 +136,13 @@ pub enum WorkerManifestError {
     Parse(String),
     #[error("duplicate worker name `{0}`")]
     DuplicateWorkerName(String),
+    #[error("invalid worker `{worker}`: {reason}")]
+    InvalidWorker { worker: String, reason: String },
 }
 
 pub fn parse_worker_manifest(yaml: &str) -> Result<WorkerManifest, WorkerManifestError> {
-    let manifest: WorkerManifest =
-        serde_yaml::from_str(yaml).map_err(|error| WorkerManifestError::Parse(error.to_string()))?;
+    let manifest: WorkerManifest = serde_yaml::from_str(yaml)
+        .map_err(|error| WorkerManifestError::Parse(error.to_string()))?;
 
     let mut seen = HashSet::new();
     for worker in &manifest.workers {
@@ -96,18 +151,75 @@ pub fn parse_worker_manifest(yaml: &str) -> Result<WorkerManifest, WorkerManifes
                 worker.name.clone(),
             ));
         }
+
+        validate_worker(worker)?;
     }
 
     Ok(manifest)
 }
 
+fn validate_worker(worker: &WorkerDefinition) -> Result<(), WorkerManifestError> {
+    match &worker.trigger {
+        WorkerTrigger::Event { transport, .. } | WorkerTrigger::Queue { transport, .. } => {
+            if matches!(transport.kind, TriggerTransportKind::JetStream) {
+                if transport.stream.is_none() {
+                    return Err(WorkerManifestError::InvalidWorker {
+                        worker: worker.name.clone(),
+                        reason: "jetStream trigger transport requires stream".into(),
+                    });
+                }
+
+                if transport.consumer.is_none() {
+                    return Err(WorkerManifestError::InvalidWorker {
+                        worker: worker.name.clone(),
+                        reason: "jetStream trigger transport requires consumer".into(),
+                    });
+                }
+
+                if transport.subject.is_none() {
+                    return Err(WorkerManifestError::InvalidWorker {
+                        worker: worker.name.clone(),
+                        reason: "jetStream trigger transport requires subject".into(),
+                    });
+                }
+            }
+        }
+    }
+
+    if worker.deployment.min_replicas == 0 {
+        return Err(WorkerManifestError::InvalidWorker {
+            worker: worker.name.clone(),
+            reason: "deployment minReplicas must be greater than 0".into(),
+        });
+    }
+
+    if let Some(max_replicas) = worker.deployment.max_replicas {
+        if max_replicas < worker.deployment.min_replicas {
+            return Err(WorkerManifestError::InvalidWorker {
+                worker: worker.name.clone(),
+                reason: "deployment maxReplicas must be greater than or equal to minReplicas"
+                    .into(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn default_min_replicas() -> u16 {
+    1
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_worker_manifest, WorkerManifestError, WorkerTrigger};
+    use super::{
+        parse_worker_manifest, TriggerTransportKind, WorkerManifestError, WorkerTrigger,
+    };
 
     #[test]
     fn flash_sale_worker_manifest_parses_from_real_fixture() {
-        let yaml = include_str!("../../../apps/examples/flash-sale/workers/flash-sale.workers.yaml");
+        let yaml =
+            include_str!("../../../apps/examples/flash-sale/workers/flash-sale.workers.yaml");
         let manifest = parse_worker_manifest(yaml).expect("parse flash sale workers");
 
         assert_eq!(manifest.workers.len(), 3);
@@ -116,18 +228,32 @@ mod tests {
             manifest.workers[0].trigger,
             WorkerTrigger::Event {
                 topic: "order.created".into(),
-                backend: "kafka".into()
+                transport: super::TriggerTransportConfig {
+                    kind: TriggerTransportKind::JetStream,
+                    stream: Some("BLADB_FLASHSALE_EVENTS".into()),
+                    consumer: Some("flashsale-order-analytics".into()),
+                    subject: Some("events.flashsale.order.created".into()),
+                }
             }
         );
-        assert_eq!(manifest.workers[2].dead_letter.as_ref().and_then(|dlq| dlq.queue.as_deref()), Some("order.payment.timeout.dlq"));
+        assert_eq!(manifest.workers[1].deployment.max_replicas, Some(10));
+        assert_eq!(
+            manifest.workers[2]
+                .dead_letter
+                .as_ref()
+                .and_then(|dlq| dlq.subject.as_deref()),
+            Some("dlq.flashsale.order.payment.timeout")
+        );
     }
 
     #[test]
     fn iot_worker_manifest_parses_and_preserves_key_templates() {
-        let yaml = include_str!("../../../apps/examples/iot-realtime/workers/iot-realtime.workers.yaml");
+        let yaml =
+            include_str!("../../../apps/examples/iot-realtime/workers/iot-realtime.workers.yaml");
         let manifest = parse_worker_manifest(yaml).expect("parse iot workers");
 
         assert_eq!(manifest.workers.len(), 3);
+        assert_eq!(manifest.workers[0].deployment.min_replicas, 2);
         assert_eq!(manifest.workers[1].steps.len(), 2);
         assert_eq!(
             manifest.workers[1].steps[0].key_template.as_deref(),
@@ -143,7 +269,11 @@ workers:
     trigger:
       type: event
       topic: order.created
-      backend: kafka
+      transport:
+        kind: jetStream
+        stream: BLADB_EVENTS
+        consumer: same-worker
+        subject: events.order.created
     source: sql.orders
     identity:
       mode: inherit-actor
@@ -154,14 +284,18 @@ workers:
       backoff: exponential
     timeoutMs: 1000
     steps:
-      - use: kafka
+      - use: nats
         action: produce
         topic: next
   - name: same-worker
     trigger:
       type: queue
       queue: retry
-      backend: mq
+      transport:
+        kind: jetStream
+        stream: BLADB_RETRY
+        consumer: same-worker-retry
+        subject: queue.retry
     source: mq.retry
     identity:
       mode: system

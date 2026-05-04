@@ -1,0 +1,31 @@
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: docker/gateway.Dockerfile
+    expose:
+      - "8787"
+
+  flash-sale:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        APP_DIR: apps/examples/flash-sale
+        VITE_BLADB_URL: /api
+    depends_on:
+      - gateway
+    expose:
+      - "80"
+
+  iot-realtime:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        APP_DIR: apps/examples/iot-realtime
+        VITE_BLADB_URL: /api
+    depends_on:
+      - gateway
+    expose:
+      - "80"

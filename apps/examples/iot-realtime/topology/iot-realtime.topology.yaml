@@ -1,0 +1,183 @@
+moduleClusters:
+  - name: iot.devices-mongo
+    category: data
+    runtime: mongo
+    policies:
+      - iot.devices.list-mine
+      - iot.telemetry.read-latest
+    discovery:
+      kind: service
+      service: bladb-module-iot-devices
+      namespace: bladb
+    transport:
+      protocol: natsService
+      subject: rpc.iot.devices
+      queueGroup: bladb.iot.devices
+    routing:
+      strategy:
+        kind: hash
+        virtualShards: 128
+      routeBy:
+        - actor.tenantId
+        - request.meta.params.deviceId
+    consistency:
+      reads: replicaPreferred
+      writes: quorum
+    failover:
+      mode: retryOtherReplica
+      maxAttempts: 2
+    deployment:
+      replicas: 2
+      minReadySeconds: 5
+      rolling:
+        maxUnavailable: 0
+        maxSurge: 1
+      autoscale:
+        minReplicas: 2
+        maxReplicas: 8
+        targetCpuUtilization: 70
+
+  - name: iot.live-redis
+    category: data
+    runtime: redis
+    policies:
+      - iot.active-count.read
+    discovery:
+      kind: service
+      service: bladb-module-iot-redis
+      namespace: bladb
+    transport:
+      protocol: natsService
+      subject: rpc.iot.live
+      queueGroup: bladb.iot.live
+    routing:
+      strategy:
+        kind: hash
+        virtualShards: 128
+      routeBy:
+        - actor.tenantId
+      sticky: true
+    consistency:
+      reads: primary
+      writes: primary
+    failover:
+      mode: retrySameNode
+      maxAttempts: 1
+    deployment:
+      replicas: 2
+      minReadySeconds: 5
+      rolling:
+        maxUnavailable: 1
+        maxSurge: 1
+      autoscale:
+        minReplicas: 2
+        maxReplicas: 10
+        targetCpuUtilization: 65
+
+  - name: iot.commands-mqtt
+    category: stream
+    runtime: mqtt
+    policies:
+      - iot.device-command.publish
+    discovery:
+      kind: service
+      service: bladb-module-iot-mqtt
+      namespace: bladb
+    transport:
+      protocol: natsService
+      subject: rpc.iot.commands
+      queueGroup: bladb.iot.commands
+    routing:
+      strategy:
+        kind: hash
+        virtualShards: 256
+      routeBy:
+        - actor.tenantId
+        - request.meta.params.deviceId
+      sticky: true
+    consistency:
+      reads: local
+      writes: primary
+    failover:
+      mode: retrySameNode
+      maxAttempts: 1
+    deployment:
+      replicas: 2
+      minReadySeconds: 5
+      rolling:
+        maxUnavailable: 0
+        maxSurge: 1
+      autoscale:
+        minReplicas: 2
+        maxReplicas: 12
+        targetCpuUtilization: 70
+
+  - name: iot.telemetry-events
+    category: stream
+    runtime: nats
+    policies: []
+    discovery:
+      kind: service
+      service: bladb-module-iot-events
+      namespace: bladb
+    transport:
+      protocol: jetStream
+      stream: BLADB_IOT_EVENTS
+      subject: events.iot.telemetry.>
+      durable: iot-telemetry-events
+    routing:
+      strategy:
+        kind: hash
+        virtualShards: 512
+      routeBy:
+        - event.actor.tenantId
+        - event.payload.deviceId
+    consistency:
+      reads: local
+      writes: quorum
+    failover:
+      mode: retryOtherZone
+      maxAttempts: 3
+    deployment:
+      replicas: 3
+      minReadySeconds: 5
+      rolling:
+        maxUnavailable: 1
+        maxSurge: 1
+      autoscale:
+        minReplicas: 3
+        maxReplicas: 15
+        targetQueueDepth: 500
+
+  - name: iot.alert-workers
+    category: worker
+    runtime: worker
+    policies: []
+    discovery:
+      kind: service
+      service: bladb-worker-iot-alerts
+      namespace: bladb
+    transport:
+      protocol: jetStream
+      stream: BLADB_IOT_EVENTS
+      subject: events.iot.>
+      durable: iot-alert-workers
+    routing:
+      strategy:
+        kind: single
+    consistency:
+      reads: local
+      writes: local
+    failover:
+      mode: retryOtherZone
+      maxAttempts: 3
+    deployment:
+      replicas: 2
+      minReadySeconds: 5
+      rolling:
+        maxUnavailable: 1
+        maxSurge: 1
+      autoscale:
+        minReplicas: 2
+        maxReplicas: 12
+        targetQueueDepth: 250

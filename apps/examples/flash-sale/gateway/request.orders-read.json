@@ -1,0 +1,14 @@
+{
+  "kind": "query",
+  "engine": "sql",
+  "action": "select",
+  "meta": {
+    "policy": "flashsale.orders.read-mine",
+    "resource": "orders.readMine"
+  },
+  "statement": "select id, status, quantity from orders where uid = ? and sku = ?",
+  "values": [
+    { "$ctx": "uid", "token": "UID" },
+    "camera-pro"
+  ]
+}

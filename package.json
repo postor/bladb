@@ -3,8 +3,18 @@
   "private": true,
   "packageManager": "pnpm@10.15.1",
   "scripts": {
+    "dev:gateway": "cargo run -p bladb-gateway -- serve 127.0.0.1:8787",
+    "dev:examples": "node scripts/dev-examples.mjs",
+    "dev:examples:down": "node scripts/dev-examples-down.mjs",
+    "dev:examples:local": "node scripts/dev-examples-local.mjs",
     "dev:flash-sale": "pnpm --dir apps/examples/flash-sale dev",
-    "dev:iot": "pnpm --dir apps/examples/iot-realtime dev"
+    "dev:iot": "pnpm --dir apps/examples/iot-realtime dev",
+    "test:client": "node --experimental-strip-types --test packages/client/test/**/*.test.ts",
+    "test:scripts": "node --test scripts/test/**/*.test.mjs",
+    "build:examples": "pnpm --dir apps/examples/flash-sale build && pnpm --dir apps/examples/iot-realtime build",
+    "smoke:examples": "node scripts/smoke-examples.mjs",
+    "smoke:examples:local": "node scripts/smoke-examples-local.mjs",
+    "extract:examples": "node packages/client/src/cli.mjs apps/examples"
   },
   "devDependencies": {
     "typescript": "^5.8.3"

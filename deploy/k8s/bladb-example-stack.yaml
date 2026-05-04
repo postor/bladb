@@ -1,0 +1,720 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bladb
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bladb-gateway-config
+  namespace: bladb
+data:
+  gateway/local-gateway.yaml: |
+    runtimes:
+      - name: flash-sale
+        policy: ../flash-sale/policies/flash-sale.policy.yaml
+        topology: ../flash-sale/topology/flash-sale.topology.yaml
+        defaultAuth:
+          uid: u_2001
+          tenantId: tenant_flashsale
+          roles:
+            - buyer
+          permissionVersion: v1
+
+      - name: iot-realtime
+        policy: ../iot-realtime/policies/iot-realtime.policy.yaml
+        topology: ../iot-realtime/topology/iot-realtime.topology.yaml
+        defaultAuth:
+          uid: u_1001
+          tenantId: tenant_a
+          roles:
+            - operator
+          permissionVersion: v1
+
+    auth:
+      users:
+        - app: flash-sale
+          uid: u_2001
+          tenantId: tenant_flashsale
+          email: buyer@flash-sale.demo
+          password: demo123
+          displayName: Flash Buyer
+          roles:
+            - buyer
+
+        - app: iot-realtime
+          uid: u_1001
+          tenantId: tenant_a
+          email: operator@iot.demo
+          password: demo123
+          displayName: IoT Operator
+          roles:
+            - operator
+
+    modules:
+      flashSale:
+        item:
+          id: item_001
+          sku: camera-pro
+          title: Camera Pro
+          price: 499
+          startsAt: 2026-05-04T20:00:00Z
+        stock: 420
+        wallets:
+          u_2001_wallet: 1280
+        orders:
+          - id: ord_0001
+            uid: u_2001
+            sku: camera-pro
+            status: paid
+            quantity: 1
+            createdAt: 2026-05-04T18:42:00Z
+          - id: ord_0002
+            uid: u_2001
+            sku: camera-pro
+            status: pending
+            quantity: 1
+            createdAt: 2026-05-04T18:55:00Z
+        queue:
+          positionDelayMs: 350
+          processingDelayMs: 900
+
+      iot:
+        activeCount: 1824
+        devices:
+          - id: device-001
+            name: Boiler Room A
+            status: online
+            ownerUid: u_1001
+            tenantId: tenant_a
+          - id: device-002
+            name: Cold Chain B
+            status: online
+            ownerUid: u_1001
+            tenantId: tenant_a
+          - id: device-003
+            name: Meter Cluster C
+            status: offline
+            ownerUid: u_1001
+            tenantId: tenant_a
+        telemetryLatest:
+          - deviceId: device-001
+            ownerUid: u_1001
+            tenantId: tenant_a
+            throughput: 842
+            temp: 36
+            ts: 2026-05-04T19:12:00Z
+          - deviceId: device-002
+            ownerUid: u_1001
+            tenantId: tenant_a
+            throughput: 1204
+            temp: 28
+            ts: 2026-05-04T19:12:08Z
+          - deviceId: device-003
+            ownerUid: u_1001
+            tenantId: tenant_a
+            throughput: 0
+            temp: 19
+            ts: 2026-05-04T19:11:42Z
+  flash-sale/policies/flash-sale.policy.yaml: |
+    auth:
+      jwt:
+        claims:
+          UID: uid
+          TENANT_ID: tenantId
+          ROLES: roles
+
+    policies:
+      - name: flashsale.items.find
+        match:
+          engine: mongo
+          collection: flashsale_items
+          action: findOne
+        enforce:
+          query:
+            tenantId: "{TENANT_ID}"
+
+      - name: flashsale.stock.read
+        match:
+          engine: redis
+          command: get
+        enforce:
+          key:
+            allowPrefixes:
+              - "flashsale:"
+
+      - name: flashsale.stock.decr
+        match:
+          engine: redis
+          command: decrby
+        enforce:
+          key:
+            allowPrefixes:
+              - "flashsale:"
+
+      - name: flashsale.wallet.read
+        match:
+          engine: redis
+          command: get
+        enforce:
+          key:
+            exact: "{UID}_wallet"
+
+      - name: flashsale.orders.read-mine
+        match:
+          engine: sql
+          operation: select
+          tables: [orders]
+        enforce:
+          where:
+            uid: "{UID}"
+            tenant_id: "{TENANT_ID}"
+
+      - name: flashsale.orders.create
+        match:
+          engine: sql
+          operation: insert
+          tables: [orders]
+        enforce:
+          fields:
+            uid: "{UID}"
+            tenant_id: "{TENANT_ID}"
+  flash-sale/topology/flash-sale.topology.yaml: |
+    moduleClusters:
+      - name: flashsale.catalog-mongo
+        category: data
+        runtime: mongo
+        policies:
+          - flashsale.items.find
+        discovery:
+          kind: service
+          service: bladb-module-catalog
+          namespace: bladb
+        transport:
+          protocol: natsService
+          subject: rpc.flashsale.catalog
+          queueGroup: bladb.flashsale.catalog
+        routing:
+          strategy:
+            kind: hash
+            virtualShards: 64
+          routeBy:
+            - actor.tenantId
+        consistency:
+          reads: replicaPreferred
+          writes: quorum
+        failover:
+          mode: retryOtherReplica
+          maxAttempts: 2
+        deployment:
+          replicas: 2
+          minReadySeconds: 5
+          rolling:
+            maxUnavailable: 0
+            maxSurge: 1
+          autoscale:
+            minReplicas: 2
+            maxReplicas: 6
+            targetCpuUtilization: 70
+
+      - name: flashsale.orders-sql
+        category: data
+        runtime: sql
+        policies:
+          - flashsale.orders.read-mine
+          - flashsale.orders.create
+        discovery:
+          kind: service
+          service: bladb-module-orders
+          namespace: bladb
+        transport:
+          protocol: natsService
+          subject: rpc.flashsale.orders
+          queueGroup: bladb.flashsale.orders
+        routing:
+          strategy:
+            kind: hash
+            virtualShards: 64
+          routeBy:
+            - actor.tenantId
+        consistency:
+          reads: primary
+          writes: quorum
+        failover:
+          mode: retryOtherReplica
+          maxAttempts: 2
+        deployment:
+          replicas: 2
+          minReadySeconds: 5
+          rolling:
+            maxUnavailable: 0
+            maxSurge: 1
+          autoscale:
+            minReplicas: 2
+            maxReplicas: 8
+            targetCpuUtilization: 70
+
+      - name: flashsale.stock-redis
+        category: data
+        runtime: redis
+        policies:
+          - flashsale.stock.read
+          - flashsale.stock.decr
+          - flashsale.wallet.read
+        discovery:
+          kind: service
+          service: bladb-module-stock
+          namespace: bladb
+        transport:
+          protocol: natsService
+          subject: rpc.flashsale.stock
+          queueGroup: bladb.flashsale.stock
+        routing:
+          strategy:
+            kind: hash
+            virtualShards: 128
+          routeBy:
+            - request.meta.params.sku
+          sticky: true
+        consistency:
+          reads: primary
+          writes: primary
+        failover:
+          mode: retrySameNode
+          maxAttempts: 1
+        deployment:
+          replicas: 3
+          minReadySeconds: 5
+          rolling:
+            maxUnavailable: 1
+            maxSurge: 1
+          autoscale:
+            minReplicas: 3
+            maxReplicas: 12
+            targetCpuUtilization: 65
+
+      - name: flashsale.workflow-workers
+        category: worker
+        runtime: worker
+        policies: []
+        discovery:
+          kind: service
+          service: bladb-worker-flashsale
+          namespace: bladb
+        transport:
+          protocol: jetStream
+          stream: BLADB_FLASHSALE_EVENTS
+          subject: events.flashsale.>
+          durable: flashsale-workers
+        routing:
+          strategy:
+            kind: single
+        consistency:
+          reads: local
+          writes: local
+        failover:
+          mode: retryOtherZone
+          maxAttempts: 3
+        deployment:
+          replicas: 2
+          minReadySeconds: 5
+          rolling:
+            maxUnavailable: 1
+            maxSurge: 1
+          autoscale:
+            minReplicas: 2
+            maxReplicas: 10
+            targetQueueDepth: 200
+  iot-realtime/policies/iot-realtime.policy.yaml: |
+    auth:
+      jwt:
+        claims:
+          UID: uid
+          TENANT_ID: tenantId
+          ROLES: roles
+
+    policies:
+      - name: iot.devices.list-mine
+        match:
+          engine: mongo
+          collection: devices
+          action: find
+        enforce:
+          query:
+            ownerUid: "{UID}"
+            tenantId: "{TENANT_ID}"
+
+      - name: iot.telemetry.read-latest
+        match:
+          engine: mongo
+          collection: telemetry_latest
+          action: findOne
+        enforce:
+          query:
+            ownerUid: "{UID}"
+            tenantId: "{TENANT_ID}"
+
+      - name: iot.active-count.read
+        match:
+          engine: redis
+          command: get
+        enforce:
+          key:
+            exact: "iot:{TENANT_ID}:active-count"
+
+      - name: iot.device-command.publish
+        match:
+          engine: mqtt
+          action: publish
+        enforce:
+          topic:
+            template: "tenant/{TENANT_ID}/devices/{args.deviceId}/commands"
+  iot-realtime/topology/iot-realtime.topology.yaml: |
+    moduleClusters:
+      - name: iot.devices-mongo
+        category: data
+        runtime: mongo
+        policies:
+          - iot.devices.list-mine
+          - iot.telemetry.read-latest
+        discovery:
+          kind: service
+          service: bladb-module-iot-devices
+          namespace: bladb
+        transport:
+          protocol: natsService
+          subject: rpc.iot.devices
+          queueGroup: bladb.iot.devices
+        routing:
+          strategy:
+            kind: hash
+            virtualShards: 128
+          routeBy:
+            - actor.tenantId
+            - request.meta.params.deviceId
+        consistency:
+          reads: replicaPreferred
+          writes: quorum
+        failover:
+          mode: retryOtherReplica
+          maxAttempts: 2
+        deployment:
+          replicas: 2
+          minReadySeconds: 5
+          rolling:
+            maxUnavailable: 0
+            maxSurge: 1
+          autoscale:
+            minReplicas: 2
+            maxReplicas: 8
+            targetCpuUtilization: 70
+
+      - name: iot.live-redis
+        category: data
+        runtime: redis
+        policies:
+          - iot.active-count.read
+        discovery:
+          kind: service
+          service: bladb-module-iot-redis
+          namespace: bladb
+        transport:
+          protocol: natsService
+          subject: rpc.iot.live
+          queueGroup: bladb.iot.live
+        routing:
+          strategy:
+            kind: hash
+            virtualShards: 128
+          routeBy:
+            - actor.tenantId
+          sticky: true
+        consistency:
+          reads: primary
+          writes: primary
+        failover:
+          mode: retrySameNode
+          maxAttempts: 1
+        deployment:
+          replicas: 2
+          minReadySeconds: 5
+          rolling:
+            maxUnavailable: 1
+            maxSurge: 1
+          autoscale:
+            minReplicas: 2
+            maxReplicas: 10
+            targetCpuUtilization: 65
+
+      - name: iot.commands-mqtt
+        category: stream
+        runtime: mqtt
+        policies:
+          - iot.device-command.publish
+        discovery:
+          kind: service
+          service: bladb-module-iot-mqtt
+          namespace: bladb
+        transport:
+          protocol: natsService
+          subject: rpc.iot.commands
+          queueGroup: bladb.iot.commands
+        routing:
+          strategy:
+            kind: hash
+            virtualShards: 256
+          routeBy:
+            - actor.tenantId
+            - request.meta.params.deviceId
+          sticky: true
+        consistency:
+          reads: local
+          writes: primary
+        failover:
+          mode: retrySameNode
+          maxAttempts: 1
+        deployment:
+          replicas: 2
+          minReadySeconds: 5
+          rolling:
+            maxUnavailable: 0
+            maxSurge: 1
+          autoscale:
+            minReplicas: 2
+            maxReplicas: 12
+            targetCpuUtilization: 70
+
+      - name: iot.telemetry-events
+        category: stream
+        runtime: nats
+        policies: []
+        discovery:
+          kind: service
+          service: bladb-module-iot-events
+          namespace: bladb
+        transport:
+          protocol: jetStream
+          stream: BLADB_IOT_EVENTS
+          subject: events.iot.telemetry.>
+          durable: iot-telemetry-events
+        routing:
+          strategy:
+            kind: hash
+            virtualShards: 512
+          routeBy:
+            - event.actor.tenantId
+            - event.payload.deviceId
+        consistency:
+          reads: local
+          writes: quorum
+        failover:
+          mode: retryOtherZone
+          maxAttempts: 3
+        deployment:
+          replicas: 3
+          minReadySeconds: 5
+          rolling:
+            maxUnavailable: 1
+            maxSurge: 1
+          autoscale:
+            minReplicas: 3
+            maxReplicas: 15
+            targetQueueDepth: 500
+
+      - name: iot.alert-workers
+        category: worker
+        runtime: worker
+        policies: []
+        discovery:
+          kind: service
+          service: bladb-worker-iot-alerts
+          namespace: bladb
+        transport:
+          protocol: jetStream
+          stream: BLADB_IOT_EVENTS
+          subject: events.iot.>
+          durable: iot-alert-workers
+        routing:
+          strategy:
+            kind: single
+        consistency:
+          reads: local
+          writes: local
+        failover:
+          mode: retryOtherZone
+          maxAttempts: 3
+        deployment:
+          replicas: 2
+          minReadySeconds: 5
+          rolling:
+            maxUnavailable: 1
+            maxSurge: 1
+          autoscale:
+            minReplicas: 2
+            maxReplicas: 12
+            targetQueueDepth: 250
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: bladb
+spec:
+  selector:
+    app.kubernetes.io/name: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+    - name: monitor
+      port: 8222
+      targetPort: 8222
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: bladb
+spec:
+  serviceName: nats
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nats
+    spec:
+      containers:
+        - name: nats
+          image: nats:2.10-alpine
+          args:
+            - -js
+            - -m
+            - "8222"
+            - -sd
+            - /data/jetstream
+          ports:
+            - containerPort: 4222
+              name: client
+            - containerPort: 8222
+              name: monitor
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+          volumeMounts:
+            - name: nats-data
+              mountPath: /data/jetstream
+  volumeClaimTemplates:
+    - metadata:
+        name: nats-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bladb-gateway
+  namespace: bladb
+spec:
+  selector:
+    app.kubernetes.io/name: bladb-gateway
+  ports:
+    - name: http
+      port: 8787
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bladb-gateway
+  namespace: bladb
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bladb-gateway
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bladb-gateway
+    spec:
+      containers:
+        - name: gateway
+          image: ghcr.io/bladb/bladb-gateway:latest
+          env:
+            - name: BLADB_GATEWAY_CONFIG
+              value: /etc/bladb/examples/gateway/local-gateway.yaml
+            - name: BLADB_NATS_URL
+              value: nats://nats.bladb.svc.cluster.local:4222
+          ports:
+            - name: http
+              containerPort: 8787
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: gateway-config
+              mountPath: /etc/bladb/examples
+              readOnly: true
+      volumes:
+        - name: gateway-config
+          configMap:
+            name: bladb-gateway-config
+            items:
+              - key: gateway/local-gateway.yaml
+                path: gateway/local-gateway.yaml
+              - key: flash-sale/policies/flash-sale.policy.yaml
+                path: flash-sale/policies/flash-sale.policy.yaml
+              - key: flash-sale/topology/flash-sale.topology.yaml
+                path: flash-sale/topology/flash-sale.topology.yaml
+              - key: iot-realtime/policies/iot-realtime.policy.yaml
+                path: iot-realtime/policies/iot-realtime.policy.yaml
+              - key: iot-realtime/topology/iot-realtime.topology.yaml
+                path: iot-realtime/topology/iot-realtime.topology.yaml
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: bladb-gateway
+  namespace: bladb
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: bladb-gateway
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
