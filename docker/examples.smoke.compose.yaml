@@ -10,3 +10,7 @@ services:
   iot-realtime:
     ports:
       - "80"
+
+  ros2-bridge:
+    ports:
+      - "80"

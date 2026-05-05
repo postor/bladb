@@ -1,5 +1,5 @@
 use bladb_core::protocol::{GatewayFailure, GatewayRequest, GatewaySuccess, ResponseMeta};
-use bladb_gateway::{LocalGatewayApp, LocalGatewayConfig};
+use bladb_gateway::{load_gateway_startup, GatewayStartup, LocalGatewayApp, Ros2Subscription};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -35,6 +35,10 @@ fn run() -> Result<(), String> {
         return run_route(&args[1..]);
     }
 
+    if args.first().is_some_and(|arg| arg == "ros2") {
+        return run_ros2_cli(&args[1..]);
+    }
+
     if args.len() >= 2 {
         return run_prepare(&args);
     }
@@ -67,6 +71,14 @@ fn serve(addr: SocketAddr, config_path: Option<&str>) -> Result<(), String> {
 fn handle_client(mut stream: TcpStream, state: &Arc<LocalGatewayApp>) -> Result<(), String> {
     let request = read_http_request(&mut stream)?;
     let bearer_token = request.header("authorization").map(str::to_string);
+    if request.method == "GET" && request.path.starts_with("/apps/ros2-bridge/messages/") {
+        if let Some(subscription) = state
+            .open_ros2_stream(&request.path, bearer_token.as_deref())
+            .map_err(|error| error.message.clone())?
+        {
+            return stream_ros2_subscription(stream, subscription);
+        }
+    }
     if request.method != "OPTIONS" && request.path.starts_with("/apps/") {
         let response = match parse_optional_json_body(request.body.clone()) {
             Ok(body) => match state.handle_app_api(
@@ -177,19 +189,20 @@ fn load_gateway_app(config_path: Option<&str>) -> Result<LocalGatewayApp, String
         .nth(2)
         .map(Path::to_path_buf)
         .ok_or_else(|| "failed to resolve workspace root".to_string())?;
-    let default_config_path = workspace_root.join("apps/examples/gateway/local-gateway.yaml");
-    let resolved_config_path = config_path
-        .map(Path::new)
-        .map(Path::to_path_buf)
-        .or_else(|| env::var("BLADB_GATEWAY_CONFIG").ok().map(Into::into))
-        .unwrap_or(default_config_path);
-    let app_config = LocalGatewayConfig::from_path(&resolved_config_path)?;
+    let discovery_root = env::current_dir().unwrap_or(workspace_root);
+    let startup = load_gateway_startup(config_path.map(Path::new), &discovery_root)
+        .map_err(|error| error.to_string())?;
 
-    println!(
-        "Loaded gateway config from {}",
-        resolved_config_path.display()
-    );
-    LocalGatewayApp::from_local_config(app_config)
+    match startup {
+        GatewayStartup::Standalone { config_path, app } => {
+            println!("Loaded gateway config from {}", config_path.display());
+            LocalGatewayApp::from_local_config(app)
+        }
+        GatewayStartup::Cluster { config_path, role } => Err(format!(
+            "gateway cluster bootstrap is reserved for runtime role `{role}` from `{}` but is not yet wired into the standalone HTTP gateway binary",
+            config_path.display()
+        )),
+    }
 }
 
 fn handle_json_body(
@@ -508,7 +521,7 @@ fn http_empty(status: StatusCode) -> String {
 }
 
 fn usage() -> String {
-    "usage: bladb-gateway [serve [addr] [config.yaml|config.json]] | prepare <policy.yaml> <request.json> [auth.json] | route <policy.yaml> <topology.yaml> <request.json> [auth.json]".into()
+    "usage: bladb-gateway [serve [addr] [config.yaml|config.json]] | prepare <policy.yaml> <request.json> [auth.json] | route <policy.yaml> <topology.yaml> <request.json> [auth.json] | ros2 <pub|sub> ...".into()
 }
 
 fn parse_serve_args(args: &[String]) -> Result<(SocketAddr, Option<String>), String> {
@@ -593,4 +606,117 @@ impl StatusCode {
             Self::InternalServerError => "Internal Server Error",
         }
     }
+}
+
+fn stream_ros2_subscription(
+    mut stream: TcpStream,
+    subscription: Ros2Subscription,
+) -> Result<(), String> {
+    stream
+        .write_all(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: content-type, authorization\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n\r\n",
+        )
+        .map_err(|error| format!("failed to write stream headers: {error}"))?;
+
+    match subscription {
+        Ros2Subscription::Local(receiver) => {
+            for message in receiver {
+                let payload = serde_json::to_string(&json!({
+                    "id": message.id,
+                    "robotId": message.robot_id,
+                    "topicName": message.topic_name,
+                    "fullTopic": message.full_topic,
+                    "messageType": message.message_type,
+                    "payload": message.payload,
+                    "issuedBy": message.issued_by,
+                    "createdAt": message.created_at
+                }))
+                .map_err(|error| format!("failed to encode stream payload: {error}"))?;
+                stream
+                    .write_all(format!("event: ros2-message\ndata: {payload}\n\n").as_bytes())
+                    .map_err(|error| format!("failed to write stream event: {error}"))?;
+                stream
+                    .flush()
+                    .map_err(|error| format!("failed to flush stream event: {error}"))?;
+            }
+            Ok(())
+        }
+        Ros2Subscription::Proxy { url } => {
+            let response = ureq::get(&url)
+                .call()
+                .map_err(|error| format!("failed to open proxied ros2 stream: {error}"))?;
+            let mut reader = response.into_reader();
+            let mut buffer = [0_u8; 4096];
+            loop {
+                let bytes_read = reader
+                    .read(&mut buffer)
+                    .map_err(|error| format!("failed to read proxied ros2 stream: {error}"))?;
+                if bytes_read == 0 {
+                    break;
+                }
+                stream
+                    .write_all(&buffer[..bytes_read])
+                    .map_err(|error| format!("failed to write proxied ros2 stream: {error}"))?;
+                stream
+                    .flush()
+                    .map_err(|error| format!("failed to flush proxied ros2 stream: {error}"))?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn run_ros2_cli(args: &[String]) -> Result<(), String> {
+    match args.first().map(String::as_str) {
+        Some("pub") => run_ros2_pub(&args[1..]),
+        Some("sub") => run_ros2_sub(&args[1..]),
+        _ => Err("usage: bladb-gateway ros2 pub <gatewayUrl> <token> <json-body> | ros2 sub <gatewayUrl> <token> <topicName>".into()),
+    }
+}
+
+fn run_ros2_pub(args: &[String]) -> Result<(), String> {
+    let gateway_url = args.first().ok_or_else(|| "missing gateway url".to_string())?;
+    let token = args.get(1).ok_or_else(|| "missing bearer token".to_string())?;
+    let raw_body = args.get(2).ok_or_else(|| "missing publish json body".to_string())?;
+    let body_source = if let Some(path) = raw_body.strip_prefix('@') {
+        fs::read_to_string(path).map_err(|error| format!("failed to read publish json file: {error}"))?
+    } else {
+        raw_body.clone()
+    };
+    let body: Value = serde_json::from_str(&body_source)
+        .map_err(|error| format!("invalid publish json body: {error}"))?;
+
+    let response = ureq::post(&format!("{}/apps/ros2-bridge/messages", gateway_url.trim_end_matches('/')))
+        .set("authorization", &format!("Bearer {token}"))
+        .set("content-type", "application/json")
+        .send_string(&body.to_string())
+        .map_err(|error| format!("ros2 pub request failed: {error}"))?;
+    let value: Value = serde_json::from_reader(response.into_reader())
+        .map_err(|error| format!("failed to parse ros2 pub response: {error}"))?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&value).map_err(|error| format!("failed to render ros2 pub response: {error}"))?
+    );
+    Ok(())
+}
+
+fn run_ros2_sub(args: &[String]) -> Result<(), String> {
+    let gateway_url = args.first().ok_or_else(|| "missing gateway url".to_string())?;
+    let token = args.get(1).ok_or_else(|| "missing bearer token".to_string())?;
+    let topic_name = args.get(2).ok_or_else(|| "missing topic name".to_string())?;
+    let url = format!(
+        "{}/apps/ros2-bridge/messages/{}/stream",
+        gateway_url.trim_end_matches('/'),
+        topic_name
+    );
+
+    let response = ureq::get(&url)
+        .set("authorization", &format!("Bearer {token}"))
+        .call()
+        .map_err(|error| format!("ros2 sub request failed: {error}"))?;
+    let mut reader = response.into_reader();
+    let mut stdout = std::io::stdout();
+    std::io::copy(&mut reader, &mut stdout)
+        .map_err(|error| format!("failed to stream ros2 sub output: {error}"))?;
+    Ok(())
 }

@@ -6,6 +6,7 @@ use crate::{ExecutionContext, ModuleRuntime, RuntimeError};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
+    any::Any,
     collections::HashMap,
     sync::{Arc, Mutex},
     thread,
@@ -399,6 +400,10 @@ impl AppApiHandler for FlashSaleModule {
             }
             _ => Err(AppError::not_found("route not found")),
         }
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 

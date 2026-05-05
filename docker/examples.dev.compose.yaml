@@ -3,6 +3,10 @@ services:
     ports:
       - "127.0.0.1:8787:8787"
 
+  ros2-backend:
+    ports:
+      - "127.0.0.1:8080:8080"
+
   flash-sale:
     ports:
       - "127.0.0.1:4173:80"
@@ -10,3 +14,7 @@ services:
   iot-realtime:
     ports:
       - "127.0.0.1:4174:80"
+
+  ros2-bridge:
+    ports:
+      - "127.0.0.1:4175:80"

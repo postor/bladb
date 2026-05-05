@@ -17,6 +17,11 @@ Build Bladb as an optimal-first platform:
 3. Compatibility is a conscious tradeoff, not a default.
 4. When the optimal design conflicts with legacy behavior, prefer the optimal design unless the user explicitly asks to preserve compatibility.
 5. During pre-1.0 work, bias toward cleaner architecture, stronger guarantees, and lower long-term complexity.
+6. If a change is obvious, low-risk, and does not create meaningful downside, make it directly instead of stopping to ask for confirmation.
+7. Do not make the user repeat permission for harmless, straightforward housekeeping such as updating ignore files, docs, agent instructions, or other clearly implied maintenance tied to the request.
+8. If a command may require administrator privileges, elevated permissions, system-wide installation, firewall changes, or machine-level configuration, stop and tell the user before running it.
+9. Do not keep retrying privileged or environment-mutating commands silently. Explain why elevated access is needed and what the command will change first.
+10. When the user gives a direct execution instruction such as "continue", "start", "do it", or a concrete implementation request, execute it without re-asking whether to proceed unless the decision has newly introduced hidden risk, destructive impact, or mutually exclusive tradeoffs that were not already accepted.
 
 ## Self-Learning Workflow
 
@@ -33,6 +38,7 @@ Agents must continuously learn from implementation work and feed those learnings
 1. If a bug, design constraint, or performance rule appears more than once, treat it as a reusable learning.
 2. If a design decision changes the preferred project direction, record it.
 3. If a workaround is required, mark whether it is temporary or strategic.
+4. If a local environment problem blocks verification, distinguish clearly between code issues and machine/toolchain issues before trying further fixes.
 
 ### After work
 

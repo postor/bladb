@@ -10,13 +10,14 @@ const services = [
   { name: "gateway", port: 8787 },
   { name: "flash-sale", port: 4173 },
   { name: "iot-realtime", port: 4174 },
+  { name: "ros2-bridge", port: 4175 },
 ];
 
 const children = [];
 let shuttingDown = false;
 
 const isWindows = process.platform === "win32";
-const cargoBin = isWindows ? "cargo.exe" : "cargo";
+const cargoBin = isWindows ? "C:/Users/posto/.cargo/bin/cargo.exe" : "cargo";
 const pnpmBin = isWindows ? "pnpm.cmd" : "pnpm";
 const gatewayExe = path.join(
   rootDir,
@@ -48,11 +49,17 @@ try {
     ["--dir", "apps/examples/iot-realtime", "dev", "--host", gatewayHost, "--port", "4174"],
     "iot-realtime",
   );
+  startProcess(
+    pnpmBin,
+    ["--dir", "apps/examples/ros2-bridge", "dev", "--host", gatewayHost, "--port", "4175"],
+    "ros2-bridge",
+  );
 
   console.log("Bladb example stack is starting:");
   console.log("- gateway: http://127.0.0.1:8787/health");
   console.log("- flash-sale: http://127.0.0.1:4173");
   console.log("- iot-realtime: http://127.0.0.1:4174");
+  console.log("- ros2-bridge: http://127.0.0.1:4175");
 } catch (error) {
   console.error(error.message);
   await shutdown(1);

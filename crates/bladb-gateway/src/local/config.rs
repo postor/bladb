@@ -1,4 +1,7 @@
-use super::{auth::InMemoryUserConfig, flash_sale::FlashSaleModuleConfig, iot::IotModuleConfig};
+use super::{
+    auth::InMemoryUserConfig, flash_sale::FlashSaleModuleConfig, iot::IotModuleConfig,
+    ros2::Ros2ModuleConfig,
+};
 use crate::AuthContext;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
@@ -23,11 +26,12 @@ pub struct LocalGatewayConfig {
 pub struct LocalGatewayModulesConfig {
     pub flash_sale: Option<FlashSaleModuleConfig>,
     pub iot: Option<IotModuleConfig>,
+    pub ros2: Option<Ros2ModuleConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct LocalGatewayFileConfig {
+pub(crate) struct LocalGatewayFileConfig {
     pub runtimes: Vec<GatewayRuntimeFileConfig>,
     #[serde(default)]
     pub auth: GatewayAuthFileConfig,
@@ -75,7 +79,13 @@ impl LocalGatewayConfig {
             })?,
         };
         let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+        Self::from_file_config(parsed, base_dir)
+    }
 
+    pub(crate) fn from_file_config(
+        parsed: LocalGatewayFileConfig,
+        base_dir: &Path,
+    ) -> Result<Self, String> {
         Ok(Self {
             runtimes: parsed
                 .runtimes

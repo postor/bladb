@@ -80,6 +80,30 @@
 - Apply when: Wiring gateway startup, adding new scenario modules, and documenting how example apps run.
 - Avoid when: A test needs tiny inline fixtures and loading a file would obscure the behavior under test.
 
+## 2026-05-05 - Unified startup should prefer one repo-level bladb.yml
+
+- Context: Standalone and cluster startup were drifting toward separate file names and separate bootstrap conventions.
+- Decision: Prefer one auto-discovered repo-level `bladb.yml`, with `mode: standalone` selecting the local single-binary path and non-standalone flows reading `runtime.role` before falling back to env.
+- Why: This keeps startup compose-like for developers, avoids demo-only boot paths, and gives gateway/module/worker runtimes one config story to converge on.
+- Apply when: Adding new startup modes, wiring example stacks, or extending runtime bootstraps beyond the gateway.
+- Avoid when: A low-level runtime test needs a tiny dedicated fixture and full unified config loading would hide the behavior under test.
+
+## 2026-05-05 - Privileged environment changes must be called out before execution
+
+- Context: Toolchain, linker, Docker, and machine-level fixes can require administrator privileges or system-wide changes that affect more than the repo.
+- Decision: If a command may need elevation or mutate machine-level configuration, tell the user first instead of retrying silently.
+- Why: This keeps environment changes explicit, protects the machine state, and makes code issues easier to separate from local setup issues.
+- Apply when: Installing toolchains, changing PATH, adding system dependencies, editing firewall or service settings, or running elevated package-manager commands.
+- Avoid when: The command is clearly workspace-local and does not require elevation or system mutation.
+
+## 2026-05-05 - Direct execution requests should not trigger redundant confirmation
+
+- Context: During iterative build-out, the user often issues compact directives such as "continue", "start doing it", or names the exact implementation they want next.
+- Decision: Treat those instructions as active permission to execute, and do not bounce back with "do you want me to proceed" unless there is a newly introduced hidden risk, destructive effect, or real fork in approach.
+- Why: Re-asking after a clear instruction slows momentum and makes the agent feel unresponsive instead of collaborative.
+- Apply when: Continuing implementation, refactoring, adding requested features, updating docs, or performing other normal workspace-local work already implied by the user's instruction.
+- Avoid when: The next step would require elevation, destructive operations, system-wide mutation, or choosing among materially different paths the user has not accepted.
+
 ## 2026-05-04 - Browser app modules should own auth persistence
 
 - Context: Example frontends still had to wire `db.auth`, `sessionStore`, and `useGatewaySession(...)` by hand even after introducing module-level API clients.

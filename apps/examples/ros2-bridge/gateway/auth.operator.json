@@ -1,0 +1,6 @@
+{
+  "uid": "u_3001",
+  "tenantId": "tenant_robotics",
+  "roles": ["operator"],
+  "permissionVersion": "v1"
+}

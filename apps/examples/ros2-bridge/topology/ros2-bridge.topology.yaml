@@ -1,0 +1,77 @@
+moduleClusters:
+  - name: ros2.bridge-mqtt
+    category: stream
+    runtime: mqtt
+    policies:
+      - ros2.topic.publish
+    discovery:
+      kind: service
+      service: bladb-module-ros2-bridge
+      namespace: bladb
+    transport:
+      protocol: natsService
+      subject: rpc.ros2.bridge
+      queueGroup: bladb.ros2.bridge
+    routing:
+      strategy:
+        kind: hash
+        virtualShards: 128
+      routeBy:
+        - actor.tenantId
+        - request.meta.params.robotId
+        - request.meta.params.topicName
+      sticky: true
+    consistency:
+      reads: local
+      writes: primary
+    failover:
+      mode: retrySameNode
+      maxAttempts: 1
+    deployment:
+      replicas: 2
+      minReadySeconds: 5
+      rolling:
+        maxUnavailable: 0
+        maxSurge: 1
+      autoscale:
+        minReplicas: 2
+        maxReplicas: 10
+        targetCpuUtilization: 70
+
+  - name: ros2.snapshots-mongo
+    category: data
+    runtime: mongo
+    policies:
+      - ros2.topic.read-latest
+      - ros2.topic.read-recent
+    discovery:
+      kind: service
+      service: bladb-module-ros2-snapshots
+      namespace: bladb
+    transport:
+      protocol: natsService
+      subject: rpc.ros2.snapshots
+      queueGroup: bladb.ros2.snapshots
+    routing:
+      strategy:
+        kind: hash
+        virtualShards: 128
+      routeBy:
+        - actor.tenantId
+        - request.meta.params.topicName
+    consistency:
+      reads: replicaPreferred
+      writes: quorum
+    failover:
+      mode: retryOtherReplica
+      maxAttempts: 2
+    deployment:
+      replicas: 2
+      minReadySeconds: 5
+      rolling:
+        maxUnavailable: 0
+        maxSurge: 1
+      autoscale:
+        minReplicas: 2
+        maxReplicas: 8
+        targetCpuUtilization: 65

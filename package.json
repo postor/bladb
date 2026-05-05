@@ -9,9 +9,10 @@
     "dev:examples:local": "node scripts/dev-examples-local.mjs",
     "dev:flash-sale": "pnpm --dir apps/examples/flash-sale dev",
     "dev:iot": "pnpm --dir apps/examples/iot-realtime dev",
+    "dev:ros2": "pnpm --dir apps/examples/ros2-bridge dev",
     "test:client": "node --experimental-strip-types --test packages/client/test/**/*.test.ts",
     "test:scripts": "node --test scripts/test/**/*.test.mjs",
-    "build:examples": "pnpm --dir apps/examples/flash-sale build && pnpm --dir apps/examples/iot-realtime build",
+    "build:examples": "pnpm --dir apps/examples/flash-sale build && pnpm --dir apps/examples/iot-realtime build && pnpm --dir apps/examples/ros2-bridge build",
     "smoke:examples": "node scripts/smoke-examples.mjs",
     "smoke:examples:local": "node scripts/smoke-examples-local.mjs",
     "extract:examples": "node packages/client/src/cli.mjs apps/examples"

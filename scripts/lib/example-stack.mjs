@@ -6,6 +6,7 @@ export function resolveExampleStackUrls(env = process.env) {
     gatewayUrl: env.BLADB_GATEWAY_URL ?? "http://127.0.0.1:8787",
     flashSaleUrl: env.BLADB_FLASH_SALE_URL ?? "http://127.0.0.1:4173",
     iotUrl: env.BLADB_IOT_URL ?? "http://127.0.0.1:4174",
+    ros2Url: env.BLADB_ROS2_URL ?? "http://127.0.0.1:4175",
   };
 }
 

@@ -6,6 +6,17 @@ services:
     expose:
       - "8787"
 
+  ros2-backend:
+    build:
+      context: ..
+      dockerfile: apps/examples/ros2-backend/Dockerfile
+    environment:
+      PORT: "8080"
+      ROS2_TENANT_ID: tenant_robotics
+      ROS2_ALLOWED_TOPICS: cmd_vel,battery_state,odom
+    expose:
+      - "8080"
+
   flash-sale:
     build:
       context: ..
@@ -27,5 +38,18 @@ services:
         VITE_BLADB_URL: /api
     depends_on:
       - gateway
+    expose:
+      - "80"
+
+  ros2-bridge:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        APP_DIR: apps/examples/ros2-bridge
+        VITE_BLADB_URL: /api
+    depends_on:
+      - gateway
+      - ros2-backend
     expose:
       - "80"

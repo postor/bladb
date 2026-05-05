@@ -56,7 +56,7 @@ pub struct ModuleRpcResponse {
     pub data: Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkerJob {
     pub worker: String,

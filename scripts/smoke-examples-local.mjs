@@ -8,15 +8,19 @@ const {
   gatewayUrl,
   flashSaleUrl,
   iotUrl,
+  ros2Url,
 } = resolveExampleStackUrls();
 
 const checks = [
   () => assertJson(`${gatewayUrl}/health`, { ok: true }, "gateway health"),
+  () => assertRos2BackendHealth(),
   () => assertTopology(),
   () => assertAuthFlow("flash-sale", "buyer@flash-sale.demo", "demo123"),
   () => assertAuthFlow("iot-realtime", "operator@iot.demo", "demo123"),
+  () => assertAuthFlow("ros2-bridge", "operator@ros2.demo", "demo123"),
   () => assertStatus(flashSaleUrl, 200, "flash-sale app"),
   () => assertStatus(iotUrl, 200, "iot-realtime app"),
+  () => assertStatus(ros2Url, 200, "ros2-bridge app"),
   () =>
     assertRoute(
       "flash-sale route",
@@ -50,6 +54,24 @@ const checks = [
         payload.data?.published === true &&
         payload.data?.topic === "tenant/tenant_a/devices/device-001/commands",
     ),
+  () =>
+    assertRoute(
+      "ros2 route",
+      "apps/examples/ros2-bridge/gateway/request.publish.json",
+      (payload) =>
+        payload.ok === true &&
+        payload.data?.route?.cluster === "ros2.bridge-mqtt" &&
+        payload.data?.route?.service === "bladb-module-ros2-bridge",
+    ),
+  () =>
+    assertExecute(
+      "ros2 execute",
+      "apps/examples/ros2-bridge/gateway/request.publish.json",
+      (payload) =>
+        payload.ok === true &&
+        payload.data?.published === true &&
+        payload.data?.fullTopic === "tenant/tenant_robotics/robots/robot-001/ros2/cmd_vel",
+    ),
 ];
 
 try {
@@ -80,6 +102,16 @@ async function assertJson(url, expected, label) {
   }
 
   console.log(`${label}: ok`);
+}
+
+async function assertRos2BackendHealth() {
+  const response = await fetch("http://127.0.0.1:8080/health");
+  const payload = await response.json();
+  if (!response.ok || payload.ok !== true || payload.service !== "ros2-backend") {
+    throw new Error(`ros2 backend health returned unexpected payload: ${JSON.stringify(payload)}`);
+  }
+
+  console.log("ros2 backend health: ok");
 }
 
 async function assertTopology() {
@@ -127,6 +159,10 @@ async function assertAuthFlow(app, email, password) {
 
   if (app === "iot-realtime") {
     await assertIotCommandHistory(token);
+  }
+
+  if (app === "ros2-bridge") {
+    await assertRos2BridgeFlow(token);
   }
 
   console.log(`${app} auth: ok`);
@@ -253,5 +289,51 @@ async function assertIotCommandHistory(token) {
   ) {
     throw new Error(`iot command history failed: ${JSON.stringify(payload)}`);
   }
+
+  console.log("iot command history: ok");
 }
 
+async function assertRos2BridgeFlow(token) {
+  const publishResponse = await fetch(`${gatewayUrl}/apps/ros2-bridge/messages`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      robotId: "robot-001",
+      topicName: "cmd_vel",
+      messageType: "geometry_msgs/msg/Twist",
+      payload: {
+        linear: { x: 0.4, y: 0, z: 0 },
+        angular: { x: 0, y: 0, z: 0.15 }
+      }
+    }),
+  });
+  const publishPayload = await publishResponse.json();
+  if (!publishResponse.ok || publishPayload.data?.published !== true) {
+    throw new Error(`ros2 publish failed: ${JSON.stringify(publishPayload)}`);
+  }
+
+  const latestResponse = await fetch(`${gatewayUrl}/apps/ros2-bridge/messages/cmd_vel/latest`, {
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const latestPayload = await latestResponse.json();
+  if (!latestResponse.ok || latestPayload.data?.topicName !== "cmd_vel") {
+    throw new Error(`ros2 latest failed: ${JSON.stringify(latestPayload)}`);
+  }
+
+  const historyResponse = await fetch(`${gatewayUrl}/apps/ros2-bridge/messages/cmd_vel`, {
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const historyPayload = await historyResponse.json();
+  if (!historyResponse.ok || !Array.isArray(historyPayload.data) || historyPayload.data.length < 1) {
+    throw new Error(`ros2 history failed: ${JSON.stringify(historyPayload)}`);
+  }
+
+  console.log("ros2 bridge flow: ok");
+}

@@ -1,0 +1,14 @@
+cluster: ros2.bridge-mqtt
+topology: ../topology/ros2-bridge.topology.yaml
+nats:
+  url: nats://nats.bladb.svc.cluster.local:4222
+transportLoop:
+  maxBatch: 128
+  idleSleepMs: 10
+serve:
+  bindAddr: 0.0.0.0:9000
+adapter:
+  runtime: mqtt
+  endpoint: ros2://rosbridge.ros.svc.cluster.local:9090
+  options:
+    domainId: "12"

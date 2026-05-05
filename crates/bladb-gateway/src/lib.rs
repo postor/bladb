@@ -1,6 +1,7 @@
 pub mod local;
 pub mod routing;
 pub mod runtime;
+pub mod startup;
 
 use bladb_core::policy::{
     parse_policy_manifest, PolicyDefinition, PolicyManifest, PolicyManifestError,
@@ -14,13 +15,16 @@ use thiserror::Error;
 pub use local::{
     AppError, FlashSaleModule, FlashSaleModuleConfig, GatewayRuntimeConfig, InMemoryAuthService,
     InMemoryUserConfig, IotModule, IotModuleConfig, LocalGatewayApp, LocalGatewayConfig,
-    LocalGatewayModulesConfig,
+    LocalGatewayModulesConfig, Ros2Module, Ros2ModuleConfig, Ros2Subscription,
 };
 pub use routing::{
     route_prepared_request, ModuleRegistry, ModuleRegistryInitError, RouteError, RouteSelection,
     RoutedRequest,
 };
 pub use runtime::{ExecutionContext, ModuleRuntime, RuntimeError, RuntimeRegistry};
+pub use startup::{
+    discover_bladb_config, load_gateway_startup, GatewayStartup, GatewayStartupError,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Authorization {

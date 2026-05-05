@@ -1,0 +1,158 @@
+mode: standalone
+
+gateway:
+  runtimes:
+    - name: flash-sale
+      policy: apps/examples/flash-sale/policies/flash-sale.policy.yaml
+      topology: apps/examples/flash-sale/topology/flash-sale.topology.yaml
+      defaultAuth:
+        uid: u_2001
+        tenantId: tenant_flashsale
+        roles:
+          - buyer
+        permissionVersion: v1
+
+    - name: iot-realtime
+      policy: apps/examples/iot-realtime/policies/iot-realtime.policy.yaml
+      topology: apps/examples/iot-realtime/topology/iot-realtime.topology.yaml
+      defaultAuth:
+        uid: u_1001
+        tenantId: tenant_a
+        roles:
+          - operator
+        permissionVersion: v1
+
+    - name: ros2-bridge
+      policy: apps/examples/ros2-bridge/policies/ros2-bridge.policy.yaml
+      topology: apps/examples/ros2-bridge/topology/ros2-bridge.topology.yaml
+      defaultAuth:
+        uid: u_3001
+        tenantId: tenant_robotics
+        roles:
+          - operator
+        permissionVersion: v1
+
+  auth:
+    users:
+      - app: flash-sale
+        uid: u_2001
+        tenantId: tenant_flashsale
+        email: buyer@flash-sale.demo
+        password: demo123
+        displayName: Flash Buyer
+        roles:
+          - buyer
+
+      - app: iot-realtime
+        uid: u_1001
+        tenantId: tenant_a
+        email: operator@iot.demo
+        password: demo123
+        displayName: IoT Operator
+        roles:
+          - operator
+
+      - app: ros2-bridge
+        uid: u_3001
+        tenantId: tenant_robotics
+        email: operator@ros2.demo
+        password: demo123
+        displayName: Robot Operator
+        roles:
+          - operator
+
+  modules:
+    flashSale:
+      item:
+        id: item_001
+        sku: camera-pro
+        title: Camera Pro
+        price: 499
+        startsAt: 2026-05-04T20:00:00Z
+      stock: 420
+      wallets:
+        u_2001_wallet: 1280
+      orders:
+        - id: ord_0001
+          uid: u_2001
+          sku: camera-pro
+          status: paid
+          quantity: 1
+          createdAt: 2026-05-04T18:42:00Z
+        - id: ord_0002
+          uid: u_2001
+          sku: camera-pro
+          status: pending
+          quantity: 1
+          createdAt: 2026-05-04T18:55:00Z
+      queue:
+        positionDelayMs: 350
+        processingDelayMs: 900
+
+    iot:
+      activeCount: 1824
+      devices:
+        - id: device-001
+          name: Boiler Room A
+          status: online
+          ownerUid: u_1001
+          tenantId: tenant_a
+        - id: device-002
+          name: Cold Chain B
+          status: online
+          ownerUid: u_1001
+          tenantId: tenant_a
+        - id: device-003
+          name: Meter Cluster C
+          status: offline
+          ownerUid: u_1001
+          tenantId: tenant_a
+      telemetryLatest:
+        - deviceId: device-001
+          ownerUid: u_1001
+          tenantId: tenant_a
+          throughput: 842
+          temp: 36
+          ts: 2026-05-04T19:12:00Z
+        - deviceId: device-002
+          ownerUid: u_1001
+          tenantId: tenant_a
+          throughput: 1204
+          temp: 28
+          ts: 2026-05-04T19:12:08Z
+        - deviceId: device-003
+          ownerUid: u_1001
+          tenantId: tenant_a
+          throughput: 0
+          temp: 19
+          ts: 2026-05-04T19:11:42Z
+
+    ros2:
+      backendBaseUrl: http://ros2-backend:8080
+      robots:
+        - id: robot-001
+          tenantId: tenant_robotics
+          ownerUid: u_3001
+          name: Warehouse AMR 01
+      allowedTopics:
+        - cmd_vel
+        - battery_state
+        - odom
+      messages:
+        - id: ros2msg_0001
+          tenantId: tenant_robotics
+          robotId: robot-001
+          topicName: cmd_vel
+          fullTopic: tenant/tenant_robotics/robots/robot-001/ros2/cmd_vel
+          messageType: geometry_msgs/msg/Twist
+          payload:
+            linear:
+              x: 0.3
+              y: 0
+              z: 0
+            angular:
+              x: 0
+              y: 0
+              z: 0.1
+          issuedBy: u_3001
+          createdAt: 2026-05-05T09:10:00Z

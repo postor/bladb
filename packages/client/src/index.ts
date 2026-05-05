@@ -385,6 +385,10 @@ export interface BrowserAuthModule<TSession extends GatewaySession = GatewaySess
 export interface AppEndpointClient {
   get<T = unknown>(path?: string): Promise<T>;
   post<T = unknown>(path: string, body?: Record<string, unknown> | SerializedValue): Promise<T>;
+  stream<T = unknown>(
+    path: string,
+    options: { signal?: AbortSignal; onMessage: (payload: T) => void }
+  ): Promise<void>;
 }
 
 export interface AppGetRouteDefinition<TArgs extends readonly unknown[], TResponse> {
@@ -628,6 +632,70 @@ function buildClient(options: BladbClientOptions, baseMeta?: RequestMetaInput): 
             body,
             auth: "required"
           });
+        },
+
+        async stream<T = unknown>(
+          path: string,
+          streamOptions: { signal?: AbortSignal; onMessage: (payload: T) => void }
+        ) {
+          const suffix = path.replace(/^\/+/, "");
+          const token = options.getToken?.();
+          if (!token) {
+            throw new BladbError("missing bearer token", {
+              status: 401,
+              code: "AUTH_EXPIRED"
+            });
+          }
+
+          const response = await (options.fetcher ?? fetch)(
+            `${options.baseUrl}${suffix ? `${basePath}/${suffix}` : basePath}`,
+            {
+              method: "GET",
+              headers: {
+                authorization: `Bearer ${token}`,
+                accept: "text/event-stream"
+              },
+              signal: streamOptions.signal
+            }
+          );
+
+          if (!response.ok) {
+            throw new BladbError(response.statusText, {
+              status: response.status
+            });
+          }
+
+          const reader = response.body?.getReader();
+          if (!reader) {
+            throw new BladbError("stream body is unavailable", {
+              status: 500
+            });
+          }
+
+          const decoder = new TextDecoder();
+          let buffered = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              break;
+            }
+
+            buffered += decoder.decode(value, { stream: true });
+            let boundary = buffered.indexOf("\n\n");
+            while (boundary >= 0) {
+              const frame = buffered.slice(0, boundary);
+              buffered = buffered.slice(boundary + 2);
+              const dataLines = frame
+                .split("\n")
+                .filter((line) => line.startsWith("data: "))
+                .map((line) => line.slice(6));
+              if (dataLines.length > 0) {
+                streamOptions.onMessage(JSON.parse(dataLines.join("\n")) as T);
+              }
+              boundary = buffered.indexOf("\n\n");
+            }
+          }
         }
       };
     },

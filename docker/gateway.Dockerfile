@@ -1,4 +1,4 @@
-FROM rust:1.85-bookworm AS builder
+FROM rust:1.95-bookworm AS builder
 
 WORKDIR /workspace
 
@@ -14,7 +14,8 @@ WORKDIR /app
 
 COPY --from=builder /workspace/target/release/bladb-gateway /usr/local/bin/bladb-gateway
 COPY --from=builder /workspace/apps/examples /app/apps/examples
+COPY bladb.yml /app/bladb.yml
 
 EXPOSE 8787
 
-CMD ["bladb-gateway", "serve", "0.0.0.0:8787", "/app/apps/examples/gateway/local-gateway.yaml"]
+CMD ["bladb-gateway", "serve", "0.0.0.0:8787", "/app/bladb.yml"]

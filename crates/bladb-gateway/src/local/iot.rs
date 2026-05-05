@@ -2,7 +2,7 @@ use super::{now_label, AppApiHandler, AppApiRequest, AppError};
 use crate::{ExecutionContext, ModuleRuntime, RuntimeError};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::HashMap, sync::Mutex};
+use std::{any::Any, collections::HashMap, sync::Mutex};
 
 pub struct IotModule {
     state: Mutex<IotState>,
@@ -358,5 +358,9 @@ impl AppApiHandler for IotModule {
                 request.method, request.path
             ))),
         }
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }

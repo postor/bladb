@@ -1,0 +1,28 @@
+{
+  "kind": "stream",
+  "engine": "mqtt",
+  "action": "publish",
+  "meta": {
+    "policy": "ros2.topic.publish",
+    "resource": "ros2.topic.publish",
+    "params": {
+      "robotId": "robot-001",
+      "topicName": "cmd_vel"
+    }
+  },
+  "topic": {
+    "$template": "key",
+    "parts": ["tenant/", "/robots/", "/ros2/", ""],
+    "values": [
+      { "$ctx": "tenantId", "token": "TENANT_ID" },
+      "{args.robotId}",
+      "{args.topicName}"
+    ]
+  },
+  "payload": {
+    "messageType": "geometry_msgs/msg/Twist",
+    "linear": { "x": 0.45, "y": 0, "z": 0 },
+    "angular": { "x": 0, "y": 0, "z": 0.2 },
+    "issuedBy": { "$ctx": "uid", "token": "UID" }
+  }
+}

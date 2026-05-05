@@ -1,0 +1,33 @@
+auth:
+  jwt:
+    claims:
+      UID: uid
+      TENANT_ID: tenantId
+      ROLES: roles
+
+policies:
+  - name: ros2.topic.publish
+    match:
+      engine: mqtt
+      action: publish
+    enforce:
+      topic:
+        template: "tenant/{TENANT_ID}/robots/{args.robotId}/ros2/{args.topicName}"
+
+  - name: ros2.topic.read-latest
+    match:
+      engine: mongo
+      collection: ros2_messages_latest
+      action: findOne
+    enforce:
+      query:
+        tenantId: "{TENANT_ID}"
+
+  - name: ros2.topic.read-recent
+    match:
+      engine: mongo
+      collection: ros2_messages_recent
+      action: find
+    enforce:
+      query:
+        tenantId: "{TENANT_ID}"

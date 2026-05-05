@@ -2,6 +2,13 @@
 
 Bladb is a mono repo for a database gateway + frontend SDK platform.
 
+## Config entrypoints
+
+For the unified gateway configuration, start here:
+
+- Default config: [bladb.yml](/D:/study/bladb/bladb.yml)
+- Config spec: [apps/docs/bladb-config-spec.md](/D:/study/bladb/apps/docs/bladb-config-spec.md)
+
 The goal is simple:
 
 - keep the call surface close to native SQL / Mongo / Redis usage
@@ -34,6 +41,12 @@ await db.app("flash-sale").post("queue", { sku: "camera-pro", quantity: 1 });
 await db.app("flash-sale").get("summary");
 await db.app("iot-realtime").get("commands");
 await db.app("iot-realtime").post("commands", { deviceId: "device-001", action: "reboot" });
+await db.app("ros2-bridge").post("messages", {
+  robotId: "robot-001",
+  topicName: "cmd_vel",
+  messageType: "geometry_msgs/msg/Twist",
+  payload: { linear: { x: 0.4 }, angular: { z: 0.15 } }
+});
 ```
 
 2. Reserved identity keys
@@ -90,6 +103,7 @@ bladb/
     examples/
       flash-sale/
       iot-realtime/
+      ros2-bridge/
   packages/
     client/
     react/
@@ -129,6 +143,7 @@ bladb/
 - `apps/docs`: product docs, policy cookbook, SDK guides
 - `apps/examples/flash-sale`: high-concurrency stock + order demo
 - `apps/examples/iot-realtime`: massive device telemetry + realtime control demo
+- `apps/examples/ros2-bridge`: ROS2-style publish and subscribe bridge demo for browser teams
 
 ## Reserved values
 
@@ -194,6 +209,10 @@ Recommended rollout path:
 3. Route by stable business keys such as `tenantId`, `deviceId`, `sku`, or `orderId`.
 4. Split hot modules first, not every module at once.
 
+Unified startup config spec:
+
+- [apps/docs/bladb-config-spec.md](/D:/study/bladb/apps/docs/bladb-config-spec.md)
+
 ### Logical module before physical cluster
 
 Do not bind policies to one concrete host.
@@ -241,6 +260,7 @@ The repo now includes example topology manifests:
 
 - [apps/examples/flash-sale/topology/flash-sale.topology.yaml](/D:/study/bladb/apps/examples/flash-sale/topology/flash-sale.topology.yaml)
 - [apps/examples/iot-realtime/topology/iot-realtime.topology.yaml](/D:/study/bladb/apps/examples/iot-realtime/topology/iot-realtime.topology.yaml)
+- [apps/examples/ros2-bridge/topology/ros2-bridge.topology.yaml](/D:/study/bladb/apps/examples/ros2-bridge/topology/ros2-bridge.topology.yaml)
 
 These describe logical module clusters, policy ownership, discovery mode, routing strategy, consistency, and failover without changing the frontend API.
 
@@ -294,6 +314,7 @@ Example runtime configs are also checked in so the same topology and worker mani
 
 - [flash-sale runtime configs](/D:/study/bladb/apps/examples/flash-sale/runtime/flashsale.orders.runtime.yaml)
 - [iot runtime configs](/D:/study/bladb/apps/examples/iot-realtime/runtime/iot.commands.runtime.yaml)
+- [ros2 runtime configs](/D:/study/bladb/apps/examples/ros2-bridge/runtime/ros2.bridge.runtime.yaml)
 
 ## Internal Bus Contract
 
@@ -503,26 +524,41 @@ pnpm dev:examples
 This starts:
 
 - the Rust gateway on `127.0.0.1:8787`
+- the ros2-backend service on `127.0.0.1:8080`
 - the flash-sale app on `127.0.0.1:4173`
 - the iot-realtime app on `127.0.0.1:4174`
+- the ros2-bridge app on `127.0.0.1:4175`
 
-By default the gateway loads:
+By default the gateway auto-discovers:
 
-- [apps/examples/gateway/local-gateway.yaml](/D:/study/bladb/apps/examples/gateway/local-gateway.yaml)
+- [bladb.yml](/D:/study/bladb/bladb.yml)
+- Config spec: [apps/docs/bladb-config-spec.md](/D:/study/bladb/apps/docs/bladb-config-spec.md)
+
+That file sets:
+
+- `mode: standalone` for the local single-binary gateway path
+- `runtime.role` for future shared cluster/runtime bootstraps when not running standalone
 
 That file owns:
 
 - runtime policy/topology bindings
 - seeded local auth users
 - local module seed data for flash-sale and iot
+- local module seed data for ros2 publish and subscribe flows
 
 You can point the same binary at another config:
 
 ```txt
-cargo run -p bladb-gateway -- serve 127.0.0.1:8787 apps/examples/gateway/local-gateway.yaml
+cargo run -p bladb-gateway -- serve 127.0.0.1:8787 bladb.yml
 
-BLADB_GATEWAY_CONFIG=apps/examples/gateway/local-gateway.yaml cargo run -p bladb-gateway -- serve
+BLADB_GATEWAY_CONFIG=bladb.yml cargo run -p bladb-gateway -- serve
 ```
+
+The older gateway-only fixture still exists here:
+
+- [apps/examples/gateway/local-gateway.yaml](/D:/study/bladb/apps/examples/gateway/local-gateway.yaml)
+
+It remains useful as a narrow local gateway config fixture, but the repo-level `bladb.yml` is now the compose-like default entrypoint.
 
 You can still run them separately if needed:
 
@@ -530,6 +566,7 @@ You can still run them separately if needed:
 pnpm dev:gateway
 pnpm --dir apps/examples/flash-sale dev --host 127.0.0.1 --port 4173
 pnpm --dir apps/examples/iot-realtime dev --host 127.0.0.1 --port 4174
+pnpm --dir apps/examples/ros2-bridge dev --host 127.0.0.1 --port 4175
 ```
 
 Smoke test the already-running stack:
@@ -549,6 +586,7 @@ Seed credentials from the local gateway config:
 
 - flash-sale buyer: `buyer@flash-sale.demo` / `demo123`
 - iot operator: `operator@iot.demo` / `demo123`
+- ros2 operator: `operator@ros2.demo` / `demo123`
 
 Gateway endpoints:
 
@@ -564,6 +602,9 @@ Gateway endpoints:
 - `GET /apps/flash-sale/queue/:ticketId`
 - `POST /apps/iot-realtime/commands`
 - `GET /apps/iot-realtime/commands`
+- `POST /apps/ros2-bridge/messages`
+- `GET /apps/ros2-bridge/messages/:topicName`
+- `GET /apps/ros2-bridge/messages/:topicName/latest`
 
 These `/apps/*` endpoints are now module-owned application APIs, not hardcoded branches in the gateway entrypoint. That keeps example-specific workflow HTTP routes on the same extension path future production modules can use.
 

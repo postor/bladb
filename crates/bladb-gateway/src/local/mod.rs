@@ -4,6 +4,7 @@ mod auth;
 mod config;
 mod flash_sale;
 mod iot;
+mod ros2;
 
 use crate::RuntimeError;
 use bladb_core::protocol::ErrorCode;
@@ -12,9 +13,11 @@ use serde_json::Value;
 pub use app::LocalGatewayApp;
 pub(crate) use app_api::{AppApiHandler, AppApiRequest};
 pub use auth::{InMemoryAuthService, InMemoryUserConfig};
+pub(crate) use config::LocalGatewayFileConfig;
 pub use config::{GatewayRuntimeConfig, LocalGatewayConfig, LocalGatewayModulesConfig};
 pub use flash_sale::{FlashSaleModule, FlashSaleModuleConfig};
 pub use iot::{IotModule, IotModuleConfig};
+pub use ros2::{Ros2Module, Ros2ModuleConfig, Ros2Subscription};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppError {
@@ -143,6 +146,23 @@ mod tests {
                     permission_version: Some("v1".into()),
                 },
             },
+            super::GatewayRuntimeConfig {
+                name: "ros2-bridge".into(),
+                policy_yaml: include_str!(
+                    "../../../../apps/examples/ros2-bridge/policies/ros2-bridge.policy.yaml"
+                )
+                .into(),
+                topology_yaml: include_str!(
+                    "../../../../apps/examples/ros2-bridge/topology/ros2-bridge.topology.yaml"
+                )
+                .into(),
+                default_auth: AuthContext {
+                    uid: Some("u_3001".into()),
+                    tenant_id: Some("tenant_robotics".into()),
+                    roles: vec!["operator".into()],
+                    permission_version: Some("v1".into()),
+                },
+            },
         ]
     }
 
@@ -164,6 +184,15 @@ mod tests {
                 email: "operator@iot.demo".into(),
                 password: "demo123".into(),
                 display_name: "IoT Operator".into(),
+                roles: vec!["operator".into()],
+            },
+            InMemoryUserConfig {
+                app: "ros2-bridge".into(),
+                uid: "u_3001".into(),
+                tenant_id: "tenant_robotics".into(),
+                email: "operator@ros2.demo".into(),
+                password: "demo123".into(),
+                display_name: "Robot Operator".into(),
                 roles: vec!["operator".into()],
             },
         ]))
@@ -311,6 +340,7 @@ mod tests {
         assert_eq!(orders_cluster["routing"]["strategy"]["virtualShards"], 64);
         assert_eq!(orders_cluster["routing"]["routeBy"][0], "actor.tenantId");
         assert_eq!(orders_cluster["routing"]["sticky"], false);
+        assert_eq!(gateways[2]["gateway"], "ros2-bridge");
     }
 
     #[test]
@@ -321,7 +351,23 @@ mod tests {
         let app = LocalGatewayApp::from_local_config(config).expect("build app from config");
 
         let topology = app.topology_snapshot();
-        assert_eq!(topology.as_array().map(Vec::len), Some(2));
+        assert_eq!(topology.as_array().map(Vec::len), Some(3));
+    }
+
+    #[test]
+    fn local_gateway_config_loads_from_root_bladb_yaml() {
+        let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bladb.yml");
+        let startup = crate::startup::load_gateway_startup(Some(&config_path), Path::new("."))
+            .expect("load unified gateway startup");
+        let app = match startup {
+            crate::startup::GatewayStartup::Standalone { app, .. } => {
+                LocalGatewayApp::from_local_config(app).expect("build app from standalone config")
+            }
+            other => panic!("expected standalone startup, got {other:?}"),
+        };
+
+        let topology = app.topology_snapshot();
+        assert_eq!(topology.as_array().map(Vec::len), Some(3));
     }
 
     #[test]
@@ -448,5 +494,106 @@ mod tests {
             response["topic"],
             "tenant/tenant_a/devices/device-001/commands"
         );
+    }
+
+    #[test]
+    fn local_app_resolves_ros2_publish_templates() {
+        let app =
+            LocalGatewayApp::with_standard_modules(example_runtime_configs(), test_auth_service())
+                .expect("build local gateway app");
+        let request: GatewayRequest = serde_json::from_value(json!({
+            "kind": "stream",
+            "engine": "mqtt",
+            "action": "publish",
+            "meta": {
+                "policy": "ros2.topic.publish",
+                "resource": "ros2.topic.publish",
+                "params": {
+                    "robotId": "robot-001",
+                    "topicName": "cmd_vel"
+                }
+            },
+            "topic": {
+                "$template": "key",
+                "parts": ["tenant/", "/robots/", "/ros2/", ""],
+                "values": [
+                    { "$ctx": "tenantId", "token": "TENANT_ID" },
+                    "{args.robotId}",
+                    "{args.topicName}"
+                ]
+            },
+            "payload": {
+                "messageType": "geometry_msgs/msg/Twist",
+                "linear": { "x": 0.45, "y": 0, "z": 0 },
+                "angular": { "x": 0, "y": 0, "z": 0.2 },
+                "issuedBy": { "$ctx": "uid", "token": "UID" }
+            }
+        }))
+        .expect("parse ros2 request");
+
+        let response = app.handle_execute(request).expect("execute ros2 request");
+        assert_eq!(response["published"], true);
+        assert_eq!(
+            response["fullTopic"],
+            "tenant/tenant_robotics/robots/robot-001/ros2/cmd_vel"
+        );
+        assert_eq!(response["issuedBy"], "u_3001");
+    }
+
+    #[test]
+    fn local_app_dispatches_ros2_publish_and_subscribe_apis() {
+        let app =
+            LocalGatewayApp::with_standard_modules(example_runtime_configs(), test_auth_service())
+                .expect("build local gateway app");
+        let login = app
+            .login("ros2-bridge", "operator@ros2.demo", "demo123")
+            .expect("login");
+        let token = login["token"].as_str().expect("session token");
+
+        let publish_response = app
+            .handle_app_api(
+                "POST",
+                "/apps/ros2-bridge/messages",
+                Some(token),
+                Some(json!({
+                    "robotId": "robot-001",
+                    "topicName": "cmd_vel",
+                    "messageType": "geometry_msgs/msg/Twist",
+                    "payload": {
+                        "linear": { "x": 0.4, "y": 0, "z": 0 },
+                        "angular": { "x": 0, "y": 0, "z": 0.15 }
+                    }
+                })),
+            )
+            .expect("ros2 publish result")
+            .expect("ros2 publish payload");
+
+        assert_eq!(publish_response["published"], true);
+        assert_eq!(publish_response["robotId"], "robot-001");
+
+        let latest_response = app
+            .handle_app_api(
+                "GET",
+                "/apps/ros2-bridge/messages/cmd_vel/latest",
+                Some(token),
+                None,
+            )
+            .expect("ros2 latest result")
+            .expect("ros2 latest payload");
+        assert_eq!(latest_response["topicName"], "cmd_vel");
+
+        let recent_response = app
+            .handle_app_api(
+                "GET",
+                "/apps/ros2-bridge/messages/cmd_vel",
+                Some(token),
+                None,
+            )
+            .expect("ros2 recent result")
+            .expect("ros2 recent payload");
+        let history = recent_response.as_array().expect("ros2 history array");
+
+        assert!(!history.is_empty());
+        assert_eq!(history[0]["topicName"], "cmd_vel");
     }
 }

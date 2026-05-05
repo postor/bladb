@@ -1,6 +1,10 @@
 use super::{
-    auth::InMemoryAuthService, config::LocalGatewayConfig, flash_sale::FlashSaleModule,
-    iot::IotModule, AppApiHandler, AppApiRequest, AppError, GatewayRuntimeConfig,
+    auth::{AuthSession, InMemoryAuthService},
+    config::LocalGatewayConfig,
+    flash_sale::FlashSaleModule,
+    iot::IotModule,
+    ros2::{Ros2Module, Ros2Subscription},
+    AppApiHandler, AppApiRequest, AppError, GatewayRuntimeConfig,
 };
 use crate::{
     route_prepared_request, AuthContext, ExecutionContext, Gateway, GatewayError, ModuleRegistry,
@@ -64,8 +68,10 @@ impl LocalGatewayApp {
     ) -> Result<Self, String> {
         let flash_sale = Arc::new(FlashSaleModule::new());
         let iot = Arc::new(IotModule::new());
-        let modules: Vec<Arc<dyn ModuleRuntime>> = vec![flash_sale.clone(), iot.clone()];
-        let app_apis: Vec<Arc<dyn AppApiHandler>> = vec![flash_sale.clone(), iot];
+        let ros2 = Arc::new(Ros2Module::new());
+        let modules: Vec<Arc<dyn ModuleRuntime>> =
+            vec![flash_sale.clone(), iot.clone(), ros2.clone()];
+        let app_apis: Vec<Arc<dyn AppApiHandler>> = vec![flash_sale.clone(), iot, ros2];
 
         Self::from_parts(
             runtime_configs,
@@ -88,6 +94,12 @@ impl LocalGatewayApp {
 
         if let Some(iot_config) = config.modules.iot {
             let module = Arc::new(IotModule::from_config(iot_config));
+            runtimes.push(module.clone());
+            app_apis.push(module);
+        }
+
+        if let Some(ros2_config) = config.modules.ros2 {
+            let module = Arc::new(Ros2Module::from_config(ros2_config));
             runtimes.push(module.clone());
             app_apis.push(module);
         }
@@ -265,6 +277,16 @@ impl LocalGatewayApp {
             .map(Some)
     }
 
+    pub fn open_ros2_stream(
+        &self,
+        path: &str,
+        bearer_token: Option<&str>,
+    ) -> Result<Option<Ros2Subscription>, AppError> {
+        let token = bearer_token.ok_or_else(|| AppError::unauthorized("missing bearer token"))?;
+        let session = self.auth_service.session_from_bearer(token)?;
+        self.find_ros2_stream(path, &session)
+    }
+
     fn resolve_execution(
         &self,
         request: &GatewayRequest,
@@ -325,5 +347,22 @@ impl LocalGatewayApp {
             code: ErrorCode::PolicyDenied,
             message,
         })
+    }
+
+    fn find_ros2_stream(
+        &self,
+        path: &str,
+        session: &AuthSession,
+    ) -> Result<Option<Ros2Subscription>, AppError> {
+        for handler in &self.app_apis {
+            let Some(ros2) = handler.as_any().downcast_ref::<Ros2Module>() else {
+                continue;
+            };
+            if let Some(subscription) = ros2.open_message_stream(session, path)? {
+                return Ok(Some(subscription));
+            }
+        }
+
+        Ok(None)
     }
 }
