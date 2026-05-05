@@ -10,14 +10,18 @@
     "dev:flash-sale": "pnpm --dir apps/examples/flash-sale dev",
     "dev:iot": "pnpm --dir apps/examples/iot-realtime dev",
     "dev:ros2": "pnpm --dir apps/examples/ros2-bridge dev",
+    "dev:user-module-demo": "pnpm --dir apps/examples/user-module-demo dev",
     "test:client": "node --experimental-strip-types --test packages/client/test/**/*.test.ts",
     "test:scripts": "node --test scripts/test/**/*.test.mjs",
-    "build:examples": "pnpm --dir apps/examples/flash-sale build && pnpm --dir apps/examples/iot-realtime build && pnpm --dir apps/examples/ros2-bridge build",
+    "build:examples": "pnpm --dir apps/examples/flash-sale build && pnpm --dir apps/examples/iot-realtime build && pnpm --dir apps/examples/ros2-bridge build && pnpm --dir apps/examples/user-module-demo build",
     "smoke:examples": "node scripts/smoke-examples.mjs",
     "smoke:examples:local": "node scripts/smoke-examples-local.mjs",
     "extract:examples": "node packages/client/src/cli.mjs apps/examples"
   },
   "devDependencies": {
+    "jsdom": "^29.1.1",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
     "typescript": "^5.8.3"
   }
 }

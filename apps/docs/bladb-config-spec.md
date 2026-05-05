@@ -43,6 +43,10 @@ mode: standalone
 runtime:
   role: gateway
 
+modules:
+  official:
+    users: {}
+
 gateway:
   runtimes: []
   auth:
@@ -54,6 +58,7 @@ Top-level keys currently defined:
 
 - `mode`
 - `runtime`
+- `modules`
 - `gateway`
 
 ## Mode semantics
@@ -165,6 +170,84 @@ Current built-in blocks:
 - `ros2`
 
 These are runtime-specific local module configs, not the long-term full distributed deployment model.
+
+## Official modules section
+
+The `modules` section reserves official module contracts that are larger than a single gateway bootstrap concern.
+
+Current official module contract:
+
+```yaml
+modules:
+  official:
+    users:
+      enabled: true
+      session:
+        transport: gateway-auth
+      jwt:
+        algorithm: HS256
+        secret: ${BLADB_JWT_SECRET}
+        publicKeyFile: null
+        privateKeyFile: null
+      password:
+        algorithm: argon2id
+      storage:
+        engine: mysql
+        mysql:
+          dsn: ${BLADB_USERS_MYSQL_DSN}
+        mongodb:
+          uri: ${BLADB_USERS_MONGODB_URI}
+          database: bladb_users
+      mailer:
+        provider: smtp
+        from: no-reply@example.com
+        smtp:
+          host: smtp.example.com
+          port: 587
+          username: ${BLADB_SMTP_USER}
+          password: ${BLADB_SMTP_PASS}
+      features:
+        register: true
+        login: true
+        verifyEmail: false
+        resetPassword: false
+```
+
+### `modules.official.users`
+
+Defines the official user module contract behind the public `db.user` API.
+
+Important status note:
+
+- this section is the product contract for the future user module
+- the current standalone gateway does not yet fully execute every field in this block
+- `gateway.auth.users` remains the active local seeded-user fixture path today
+
+Fields:
+
+- `enabled`: turns the official module contract on for environments that wire it
+- `session.transport`: names the current session transport strategy, such as `gateway-auth`
+- `jwt.algorithm`: signing algorithm such as `HS256`, `RS256`, or `EdDSA`
+- `jwt.secret`: shared secret string for symmetric signing modes
+- `jwt.publicKeyFile`: filesystem path to the public key file for asymmetric verification
+- `jwt.privateKeyFile`: filesystem path to the private key file for asymmetric signing
+- `password.algorithm`: password hashing algorithm such as `argon2id` or `bcrypt`
+- `storage.engine`: primary persistence backend, currently expected to be `mysql` or `mongodb`
+- `storage.mysql`: MySQL-specific storage settings
+- `storage.mongodb`: MongoDB-specific storage settings
+- `mailer.provider`: mail delivery provider such as `smtp`
+- `mailer.from`: default sender address
+- `mailer.smtp`: SMTP host, port, username, and password settings
+- `features.register`: enables registration flows
+- `features.login`: enables login flows
+- `features.verifyEmail`: enables email verification flows
+- `features.resetPassword`: enables password reset flows
+
+Design intent:
+
+- `db.user` is the stable developer-facing API
+- the official users module can orchestrate MySQL, MongoDB, mailer, crypto, and future third-party modules
+- server-side implementation can evolve without changing the frontend module shape
 
 ## Relative path rules
 

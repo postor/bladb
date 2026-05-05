@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import {
   db,
   ros2Api,
-  ros2Auth,
   subscribeRos2Topic,
   type Ros2Message,
   type Ros2Session
@@ -22,7 +21,7 @@ interface LatestSnapshot {
 }
 
 export default function App() {
-  const auth = useGatewaySession<Ros2Session>(ros2Auth);
+  const auth = useGatewaySession<Ros2Session>(db.user);
 
   if (!auth.ready && !auth.session) {
     return (

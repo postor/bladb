@@ -1,20 +1,24 @@
 services:
   gateway:
     ports:
-      - "127.0.0.1:8787:8787"
+      - "127.0.0.1:${BLADB_GATEWAY_PORT:-8787}:8787"
 
   ros2-backend:
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${BLADB_ROS2_BACKEND_PORT:-8080}:8080"
 
   flash-sale:
     ports:
-      - "127.0.0.1:4173:80"
+      - "127.0.0.1:${BLADB_FLASH_SALE_PORT:-4173}:80"
 
   iot-realtime:
     ports:
-      - "127.0.0.1:4174:80"
+      - "127.0.0.1:${BLADB_IOT_PORT:-4174}:80"
 
   ros2-bridge:
     ports:
-      - "127.0.0.1:4175:80"
+      - "127.0.0.1:${BLADB_ROS2_PORT:-4175}:80"
+
+  user-module-demo:
+    ports:
+      - "127.0.0.1:${BLADB_USER_MODULE_DEMO_PORT:-4176}:80"

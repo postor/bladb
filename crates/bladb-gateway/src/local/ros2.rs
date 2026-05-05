@@ -263,7 +263,7 @@ impl Ros2Module {
         path.starts_with("/apps/ros2-bridge/messages/") && path.ends_with("/stream")
     }
 
-    pub fn open_message_stream(
+    pub(crate) fn open_message_stream(
         &self,
         session: &crate::local::auth::AuthSession,
         path: &str,
@@ -671,7 +671,9 @@ impl AppApiHandler for Ros2Module {
 
 #[cfg(test)]
 mod tests {
-    use super::{Ros2MessageConfig, Ros2Module, Ros2ModuleConfig, Ros2RobotConfig, Ros2Subscription};
+    use super::{
+        Ros2MessageConfig, Ros2Module, Ros2ModuleConfig, Ros2RobotConfig, Ros2Subscription,
+    };
     use crate::{
         local::{auth::AuthSession, AppApiHandler, AppApiRequest, AppError},
         AuthContext, Authorization, ExecutionContext, ModuleRuntime, RouteSelection, RoutedRequest,
@@ -928,7 +930,9 @@ mod tests {
                     panic!("proxy request closed before headers were fully read");
                 }
                 request_bytes.extend_from_slice(&buffer[..bytes_read]);
-                if let Some(index) = request_bytes.windows(4).position(|window| window == b"\r\n\r\n")
+                if let Some(index) = request_bytes
+                    .windows(4)
+                    .position(|window| window == b"\r\n\r\n")
                 {
                     header_end = index;
                     let headers = String::from_utf8_lossy(&request_bytes[..index]);

@@ -139,6 +139,8 @@ export interface BladbClientOptions {
   baseUrl: string;
   getToken?: () => string | undefined;
   fetcher?: typeof fetch;
+  executeAuth?: "optional" | "required";
+  appAuth?: "optional" | "required";
 }
 
 export interface GatewaySessionUser {
@@ -181,8 +183,9 @@ export interface BrowserAppModule<
   TSession extends GatewaySession,
   TDefinitions extends Record<string, AppRouteDefinition>
 > {
-  db: BladbClient;
+  db: BrowserBladbClient<TSession>;
   sessionStore: BrowserSessionStore<TSession>;
+  user: BrowserUserModule<TSession>;
   auth: BrowserAuthModule<TSession>;
   api: TypedAppClient<TDefinitions>;
 }
@@ -200,15 +203,32 @@ export interface RegisterInput extends LoginInput {
 export function createBrowserSessionStore<TSession extends { token: string } = GatewaySession>(
   options: BrowserSessionStoreOptions
 ): BrowserSessionStore<TSession> {
+  const clearStorage = () => {
+    window.localStorage.removeItem(options.tokenKey);
+    window.localStorage.removeItem(options.sessionKey);
+  };
+
   return {
     read(): TSession | null {
+      const persistedToken = window.localStorage.getItem(options.tokenKey);
       const raw = window.localStorage.getItem(options.sessionKey);
       if (!raw) {
         return null;
       }
 
+      if (!persistedToken) {
+        clearStorage();
+        return null;
+      }
+
       try {
-        return JSON.parse(raw) as TSession;
+        const session = JSON.parse(raw) as TSession;
+        if (session.token !== persistedToken) {
+          clearStorage();
+          return null;
+        }
+
+        return session;
       } catch {
         this.clear();
         return null;
@@ -221,8 +241,7 @@ export function createBrowserSessionStore<TSession extends { token: string } = G
     },
 
     clear() {
-      window.localStorage.removeItem(options.tokenKey);
-      window.localStorage.removeItem(options.sessionKey);
+      clearStorage();
     },
 
     getToken() {
@@ -278,6 +297,12 @@ async function requestJson<T>(
 ): Promise<T> {
   const fetcher = options.fetcher ?? fetch;
   const token = requestOptions.auth === "none" ? undefined : options.getToken?.();
+  if (requestOptions.auth === "required" && !token) {
+    throw new BladbError("missing bearer token", {
+      status: 401,
+      code: "AUTH_EXPIRED"
+    });
+  }
   const response = await fetcher(`${options.baseUrl}${requestOptions.path}`, {
     method: requestOptions.method ?? "GET",
     headers: {
@@ -311,7 +336,7 @@ async function post<T>(options: BladbClientOptions, payload: RequestPayload): Pr
     path: "/execute",
     method: "POST",
     body: payload,
-    auth: "optional"
+    auth: options.executeAuth ?? "optional"
   });
 }
 
@@ -367,10 +392,13 @@ export interface QueueCommands {
 }
 
 export interface AuthCommands {
-  login<TSession = GatewaySession>(input: LoginInput): Promise<TSession>;
-  register<TSession = GatewaySession>(input: RegisterInput): Promise<TSession>;
-  me<TSession = GatewaySession>(): Promise<TSession>;
+  login(input: LoginInput): Promise<GatewaySession>;
+  register(input: RegisterInput): Promise<GatewaySession>;
+  me(): Promise<GatewaySession>;
+  logout?(): Promise<unknown>;
 }
+
+export interface UserCommands extends AuthCommands {}
 
 export interface BrowserAuthModule<TSession extends GatewaySession = GatewaySession>
   extends AuthCommands {
@@ -378,8 +406,19 @@ export interface BrowserAuthModule<TSession extends GatewaySession = GatewaySess
   getToken(): string | undefined;
   login(input: LoginInput): Promise<TSession>;
   register(input: RegisterInput): Promise<TSession>;
+  me(): Promise<TSession>;
   refresh(): Promise<TSession | null>;
   logout(): void;
+}
+
+export interface BrowserUserModule<TSession extends GatewaySession = GatewaySession>
+  extends BrowserAuthModule<TSession> {}
+
+export interface BrowserBladbClient<TSession extends GatewaySession = GatewaySession>
+  extends BladbClient {
+  withMeta(meta: RequestMetaInput): BrowserBladbClient<TSession>;
+  user: BrowserUserModule<TSession>;
+  auth: BrowserAuthModule<TSession>;
 }
 
 export interface AppEndpointClient {
@@ -387,7 +426,7 @@ export interface AppEndpointClient {
   post<T = unknown>(path: string, body?: Record<string, unknown> | SerializedValue): Promise<T>;
   stream<T = unknown>(
     path: string,
-    options: { signal?: AbortSignal; onMessage: (payload: T) => void }
+    options: { onOpen?: () => void; signal?: AbortSignal; onMessage: (payload: T) => void }
   ): Promise<void>;
 }
 
@@ -406,9 +445,21 @@ export interface AppPostRouteDefinition<
   readonly resolveBody: (...args: TArgs) => TBody;
 }
 
+export interface AppStreamRouteDefinition<TArgs extends readonly unknown[], TResponse> {
+  readonly method: "STREAM";
+  readonly resolvePath: (...args: TArgs) => string;
+}
+
 export type AppRouteDefinition =
   | AppGetRouteDefinition<readonly unknown[], unknown>
-  | AppPostRouteDefinition<readonly unknown[], unknown, unknown>;
+  | AppPostRouteDefinition<readonly unknown[], unknown, unknown>
+  | AppStreamRouteDefinition<readonly unknown[], unknown>;
+
+export interface AppStreamOptions<TResponse> {
+  onOpen?: () => void;
+  signal?: AbortSignal;
+  onMessage: (payload: TResponse) => void;
+}
 
 export type TypedAppClient<TDefinitions extends Record<string, AppRouteDefinition>> = {
   [TKey in keyof TDefinitions]:
@@ -416,7 +467,9 @@ export type TypedAppClient<TDefinitions extends Record<string, AppRouteDefinitio
       ? (...args: TArgs) => Promise<TResponse>
       : TDefinitions[TKey] extends AppPostRouteDefinition<infer TArgs, infer _TBody, infer TResponse>
         ? (...args: TArgs) => Promise<TResponse>
-        : never;
+        : TDefinitions[TKey] extends AppStreamRouteDefinition<infer TArgs, infer TResponse>
+          ? (...args: [...TArgs, AppStreamOptions<TResponse>]) => Promise<void>
+          : never;
 };
 
 export function appGet<TResponse>(
@@ -462,6 +515,24 @@ export function appPost<TArgs extends readonly unknown[], TBody, TResponse>(
   };
 }
 
+export function appStream<TResponse>(
+  path: string
+): AppStreamRouteDefinition<[], TResponse>;
+export function appStream<TArgs extends readonly unknown[], TResponse>(
+  path: (...args: TArgs) => string
+): AppStreamRouteDefinition<TArgs, TResponse>;
+export function appStream<TArgs extends readonly unknown[], TResponse>(
+  path: string | ((...args: TArgs) => string)
+): AppStreamRouteDefinition<TArgs, TResponse> {
+  return {
+    method: "STREAM",
+    resolvePath:
+      typeof path === "string"
+        ? (() => path) as (...args: TArgs) => string
+        : path
+  };
+}
+
 export function createTypedAppClient<TDefinitions extends Record<string, AppRouteDefinition>>(
   client: AppEndpointClient,
   definitions: TDefinitions
@@ -475,12 +546,23 @@ export function createTypedAppClient<TDefinitions extends Record<string, AppRout
       ];
     }
 
+    if (definition.method === "STREAM") {
+      return [
+        name,
+        (...args: readonly unknown[]) => {
+          const streamOptions = args[args.length - 1] as AppStreamOptions<unknown>;
+          const pathArgs = args.slice(0, -1);
+          return client.stream(definition.resolvePath(...pathArgs), streamOptions);
+        }
+      ];
+    }
+
     return [
       name,
       (...args: readonly unknown[]) =>
         client.post(
           definition.resolvePath(...args),
-          definition.resolveBody(...args)
+          definition.resolveBody(...args) as Record<string, unknown> | SerializedValue | undefined
         )
     ];
   });
@@ -490,7 +572,7 @@ export function createTypedAppClient<TDefinitions extends Record<string, AppRout
 
 export function createBrowserAppModule<
   TSession extends GatewaySession = GatewaySession,
-  TDefinitions extends Record<string, AppRouteDefinition>
+  TDefinitions extends Record<string, AppRouteDefinition> = Record<string, AppRouteDefinition>
 >(
   options: BrowserAppModuleOptions<TSession, TDefinitions>
 ): BrowserAppModule<TSession, TDefinitions> {
@@ -498,16 +580,20 @@ export function createBrowserAppModule<
     tokenKey: options.tokenKey,
     sessionKey: options.sessionKey
   });
-  const db = createClient({
+  const client = createClient({
     baseUrl: options.baseUrl,
     fetcher: options.fetcher,
-    getToken: () => sessionStore.getToken()
+    getToken: () => sessionStore.getToken(),
+    executeAuth: "required"
   });
-  const auth = createBrowserAuthModule<TSession>(db.auth, sessionStore);
+  const user = createBrowserUserModule<TSession>(client.user, sessionStore);
+  const auth = createBrowserAuthModule<TSession>(client.auth, sessionStore);
+  const db = createBrowserClient<TSession>(client, user, auth);
 
   return {
     db,
     sessionStore,
+    user,
     auth,
     api: createTypedAppClient(db.app(options.appName), options.routes)
   };
@@ -537,13 +623,13 @@ export function createBrowserAuthModule<TSession extends GatewaySession = Gatewa
     },
 
     async login(input: LoginInput) {
-      const session = await auth.login<TSession>(input);
-      return applySession(session) as TSession;
+      const session = await auth.login(input);
+      return applySession(session as TSession) as TSession;
     },
 
     async register(input: RegisterInput) {
-      const session = await auth.register<TSession>(input);
-      return applySession(session) as TSession;
+      const session = await auth.register(input);
+      return applySession(session as TSession) as TSession;
     },
 
     async refresh() {
@@ -552,26 +638,51 @@ export function createBrowserAuthModule<TSession extends GatewaySession = Gatewa
       }
 
       try {
-        const session = await auth.me<TSession>();
-        return applySession(session);
+        const session = await auth.me();
+        return applySession(session as TSession);
       } catch {
         return applySession(null);
       }
     },
 
     logout() {
+      const remoteLogout = auth.logout?.().catch(() => undefined);
       applySession(null);
+      void remoteLogout;
     },
 
-    me<TCurrentSession = GatewaySession>() {
-      return auth.me<TCurrentSession>();
+    me() {
+      return auth.me() as Promise<TSession>;
     }
+  };
+}
+
+export function createBrowserUserModule<TSession extends GatewaySession = GatewaySession>(
+  user: UserCommands,
+  store: BrowserSessionStore<TSession>
+): BrowserUserModule<TSession> {
+  return createBrowserAuthModule<TSession>(user, store);
+}
+
+function createBrowserClient<TSession extends GatewaySession>(
+  client: BladbClient,
+  user: BrowserUserModule<TSession>,
+  auth: BrowserAuthModule<TSession>
+): BrowserBladbClient<TSession> {
+  return {
+    ...client,
+    withMeta(meta: RequestMetaInput) {
+      return createBrowserClient(client.withMeta(meta), user, auth);
+    },
+    user,
+    auth
   };
 }
 
 export interface BladbClient {
   withMeta(meta: RequestMetaInput): BladbClient;
   app(name: string): AppEndpointClient;
+  user: UserCommands;
   auth: AuthCommands;
   sql<T = unknown>(strings: TemplateStringsArray, ...values: SerializedValue[]): Promise<T>;
   mongo(collection: string): MongoQueryBuilder;
@@ -603,7 +714,79 @@ function buildClient(options: BladbClientOptions, baseMeta?: RequestMetaInput): 
     post<T>(options, {
       ...payload,
       meta: serializeMeta(mergeMeta(baseMeta, payload.meta))
-    });
+    } as RequestPayload);
+
+  const userCommands: UserCommands = {
+    login(input: LoginInput) {
+      return requestJson<GatewaySession>(options, {
+        path: "/users/login",
+        method: "POST",
+        body: input,
+        auth: "none"
+      });
+    },
+
+    register(input: RegisterInput) {
+      return requestJson<GatewaySession>(options, {
+        path: "/users/register",
+        method: "POST",
+        body: input,
+        auth: "none"
+      });
+    },
+
+    me() {
+      return requestJson<GatewaySession>(options, {
+        path: "/users/me",
+        method: "GET",
+        auth: "required"
+      });
+    },
+
+    logout() {
+      return requestJson<{ loggedOut: boolean }>(options, {
+        path: "/users/logout",
+        method: "POST",
+        auth: "required"
+      });
+    }
+  };
+
+  const authCommands: AuthCommands = {
+    login(input: LoginInput) {
+      return requestJson<GatewaySession>(options, {
+        path: "/auth/login",
+        method: "POST",
+        body: input,
+        auth: "none"
+      });
+    },
+
+    register(input: RegisterInput) {
+      return requestJson<GatewaySession>(options, {
+        path: "/auth/register",
+        method: "POST",
+        body: input,
+        auth: "none"
+      });
+    },
+
+    me() {
+      return requestJson<GatewaySession>(options, {
+        path: "/auth/me",
+        method: "GET",
+        auth: "required"
+      });
+    },
+
+    logout() {
+      return requestJson<{ loggedOut: boolean }>(options, {
+        path: "/auth/logout",
+        method: "POST",
+        auth: "required"
+      });
+    }
+  };
 
   return {
     withMeta(meta: RequestMetaInput): BladbClient {
@@ -620,7 +803,7 @@ function buildClient(options: BladbClientOptions, baseMeta?: RequestMetaInput): 
           return requestJson<T>(options, {
             path: suffix ? `${basePath}/${suffix}` : basePath,
             method: "GET",
-            auth: "required"
+            auth: options.appAuth ?? "required"
           });
         },
 
@@ -630,17 +813,18 @@ function buildClient(options: BladbClientOptions, baseMeta?: RequestMetaInput): 
             path: suffix ? `${basePath}/${suffix}` : basePath,
             method: "POST",
             body,
-            auth: "required"
+            auth: options.appAuth ?? "required"
           });
         },
 
         async stream<T = unknown>(
           path: string,
-          streamOptions: { signal?: AbortSignal; onMessage: (payload: T) => void }
+          streamOptions: { onOpen?: () => void; signal?: AbortSignal; onMessage: (payload: T) => void }
         ) {
           const suffix = path.replace(/^\/+/, "");
           const token = options.getToken?.();
-          if (!token) {
+          const authMode = options.appAuth ?? "required";
+          if (authMode === "required" && !token) {
             throw new BladbError("missing bearer token", {
               status: 401,
               code: "AUTH_EXPIRED"
@@ -652,7 +836,7 @@ function buildClient(options: BladbClientOptions, baseMeta?: RequestMetaInput): 
             {
               method: "GET",
               headers: {
-                authorization: `Bearer ${token}`,
+                ...(token ? { authorization: `Bearer ${token}` } : {}),
                 accept: "text/event-stream"
               },
               signal: streamOptions.signal
@@ -671,6 +855,8 @@ function buildClient(options: BladbClientOptions, baseMeta?: RequestMetaInput): 
               status: 500
             });
           }
+
+          streamOptions.onOpen?.();
 
           const decoder = new TextDecoder();
           let buffered = "";
@@ -700,33 +886,9 @@ function buildClient(options: BladbClientOptions, baseMeta?: RequestMetaInput): 
       };
     },
 
-    auth: {
-      login<TSession = GatewaySession>(input: LoginInput) {
-        return requestJson<TSession>(options, {
-          path: "/auth/login",
-          method: "POST",
-          body: input,
-          auth: "none"
-        });
-      },
+    user: userCommands,
 
-      register<TSession = GatewaySession>(input: RegisterInput) {
-        return requestJson<TSession>(options, {
-          path: "/auth/register",
-          method: "POST",
-          body: input,
-          auth: "none"
-        });
-      },
-
-      me<TSession = GatewaySession>() {
-        return requestJson<TSession>(options, {
-          path: "/auth/me",
-          method: "GET",
-          auth: "required"
-        });
-      }
-    },
+    auth: authCommands,
 
     sql<T = unknown>(strings: TemplateStringsArray, ...values: SerializedValue[]) {
       const statement = strings.reduce((sql, chunk, index) => {

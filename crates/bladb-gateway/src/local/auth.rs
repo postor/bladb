@@ -188,6 +188,32 @@ impl InMemoryAuthService {
             .cloned()
             .ok_or_else(|| AppError::unauthorized("session expired or token is invalid"))
     }
+
+    pub(crate) fn logout(&self, bearer_token: &str) -> Result<Value, AppError> {
+        let token = bearer_token
+            .trim()
+            .strip_prefix("Bearer ")
+            .or_else(|| bearer_token.trim().strip_prefix("bearer "))
+            .unwrap_or_else(|| bearer_token.trim());
+
+        if token.is_empty() {
+            return Err(AppError::unauthorized("missing bearer token"));
+        }
+
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| AppError::internal("auth state lock poisoned"))?;
+        let revoked = state.sessions.remove(token).is_some();
+
+        if !revoked {
+            return Err(AppError::unauthorized(
+                "session expired or token is invalid",
+            ));
+        }
+
+        Ok(json!({ "revoked": true }))
+    }
 }
 
 impl AuthUser {

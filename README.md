@@ -9,6 +9,8 @@ For the unified gateway configuration, start here:
 - Default config: [bladb.yml](/D:/study/bladb/bladb.yml)
 - Config spec: [apps/docs/bladb-config-spec.md](/D:/study/bladb/apps/docs/bladb-config-spec.md)
 
+The official user module contract also lives in that config spec under `modules.official.users`. This is the long-term server contract behind the public `db.user` API.
+
 The goal is simple:
 
 - keep the call surface close to native SQL / Mongo / Redis usage
@@ -31,7 +33,7 @@ await db
   .withMeta({ resource: "device.command", params: { deviceId } })
   .mqtt.publish(template`tenant/${TENANT_ID}/devices/${deviceId}/commands`, { action: "reboot" });
 
-const session = await db.auth.login({
+const session = await db.user.login({
   app: "flash-sale",
   email: "buyer@flash-sale.demo",
   password: "demo123"
@@ -41,6 +43,11 @@ await db.app("flash-sale").post("queue", { sku: "camera-pro", quantity: 1 });
 await db.app("flash-sale").get("summary");
 await db.app("iot-realtime").get("commands");
 await db.app("iot-realtime").post("commands", { deviceId: "device-001", action: "reboot" });
+await db.app("iot-realtime").stream("commands/device-001/stream", {
+  onMessage(event) {
+    console.log(event.topic, event.action);
+  }
+});
 await db.app("ros2-bridge").post("messages", {
   robotId: "robot-001",
   topicName: "cmd_vel",
@@ -459,12 +466,15 @@ node packages/client/src/cli.mjs apps/examples --no-suggestions
 
 The browser SDK also now includes small gateway helpers that the examples use directly:
 
-- `db.auth.login/register/me`
+- `db.user.login/register/me`
+- `db.user.logout()` when the `db` instance comes from `createBrowserAppModule(...)`
 - `db.app("<app-name>").get/post(...)`
 - `createBrowserSessionStore(...)`
 - `createBrowserAuthModule(...)`
 - `appGet(...)` / `appPost(...)` / `createTypedAppClient(...)`
 - `createBrowserAppModule(...)`
+
+`db.auth` still exists as a compatibility alias in the current repo, but `db.user` is now the official module surface. A plain `createClient(...)` instance still exposes transport-oriented `login/register/me`; the browser-managed `db` returned by `createBrowserAppModule(...)` layers session persistence and `logout()` on top of that same user module.
 
 The React package also now includes:
 
@@ -501,14 +511,21 @@ const flashSaleModule = createBrowserAppModule({
 });
 
 export const db = flashSaleModule.db;
+export const flashSaleUser = flashSaleModule.user;
 export const flashSaleAuth = flashSaleModule.auth;
 export const flashSaleApi = flashSaleModule.api;
 ```
 
-That lets React screens bind session state at the module boundary instead of wiring `db.auth` and `sessionStore` separately:
+That lets React screens and browser logic stay on the official `db.user` surface instead of wiring a low-level transport client and `sessionStore` separately:
 
 ```ts
-const auth = useGatewaySession(flashSaleAuth);
+const user = useGatewaySession(db.user);
+await db.user.login({
+  app: "flash-sale",
+  email: "buyer@flash-sale.demo",
+  password: "demo123"
+});
+db.user.logout();
 ```
 
 ## Running The Example Stack
@@ -528,6 +545,18 @@ This starts:
 - the flash-sale app on `127.0.0.1:4173`
 - the iot-realtime app on `127.0.0.1:4174`
 - the ros2-bridge app on `127.0.0.1:4175`
+- the user-module-demo app on `127.0.0.1:4176`
+
+If one of those host ports is already occupied, `pnpm dev:examples` and `pnpm dev:examples:local` now auto-pick the next free local ports and print the resolved URLs after startup.
+
+If you want to pin ports for this project, you can set any of:
+
+- `BLADB_GATEWAY_PORT`
+- `BLADB_ROS2_BACKEND_PORT`
+- `BLADB_FLASH_SALE_PORT`
+- `BLADB_IOT_PORT`
+- `BLADB_ROS2_PORT`
+- `BLADB_USER_MODULE_DEMO_PORT`
 
 By default the gateway auto-discovers:
 
@@ -543,6 +572,7 @@ That file owns:
 
 - runtime policy/topology bindings
 - seeded local auth users
+- official module contracts such as `modules.official.users`
 - local module seed data for flash-sale and iot
 - local module seed data for ros2 publish and subscribe flows
 
@@ -567,6 +597,7 @@ pnpm dev:gateway
 pnpm --dir apps/examples/flash-sale dev --host 127.0.0.1 --port 4173
 pnpm --dir apps/examples/iot-realtime dev --host 127.0.0.1 --port 4174
 pnpm --dir apps/examples/ros2-bridge dev --host 127.0.0.1 --port 4175
+pnpm --dir apps/examples/user-module-demo dev --host 127.0.0.1 --port 4176
 ```
 
 Smoke test the already-running stack:
@@ -579,6 +610,8 @@ Current local URLs:
 
 - flash sale: `http://127.0.0.1:4173`
 - iot realtime: `http://127.0.0.1:4174`
+- ros2 bridge: `http://127.0.0.1:4175`
+- user module demo: `http://127.0.0.1:4176`
 - gateway health: `http://127.0.0.1:8787/health`
 - gateway topology: `http://127.0.0.1:8787/topology`
 
@@ -587,12 +620,16 @@ Seed credentials from the local gateway config:
 - flash-sale buyer: `buyer@flash-sale.demo` / `demo123`
 - iot operator: `operator@iot.demo` / `demo123`
 - ros2 operator: `operator@ros2.demo` / `demo123`
+- user-module-demo member: `member@user.demo` / `demo123`
 
 Gateway endpoints:
 
 - `POST /auth/register`
 - `POST /auth/login`
 - `GET /auth/me`
+- `POST /users/register`
+- `POST /users/login`
+- `GET /users/me`
 - `POST /route`
 - `POST /execute`
 - `GET /topology`
@@ -602,11 +639,28 @@ Gateway endpoints:
 - `GET /apps/flash-sale/queue/:ticketId`
 - `POST /apps/iot-realtime/commands`
 - `GET /apps/iot-realtime/commands`
+- `GET /apps/iot-realtime/commands/:deviceId/stream`
 - `POST /apps/ros2-bridge/messages`
 - `GET /apps/ros2-bridge/messages/:topicName`
 - `GET /apps/ros2-bridge/messages/:topicName/latest`
+- `GET /apps/ros2-bridge/messages/:topicName/stream`
 
 These `/apps/*` endpoints are now module-owned application APIs, not hardcoded branches in the gateway entrypoint. That keeps example-specific workflow HTTP routes on the same extension path future production modules can use.
+
+## Manual Verification
+
+### Browser verification
+
+- `flash-sale`: open `http://127.0.0.1:4173`, login with `buyer@flash-sale.demo` / `demo123`, click `Join queue`, confirm the current ticket and queue history update, then click `Logout` and confirm the login screen returns.
+- `iot-realtime`: open `http://127.0.0.1:4174`, login with `operator@iot.demo` / `demo123`, keep `device-001` selected, click `Reboot device`, and confirm `MQTT stream: subscribed` plus `Last MQTT action`, `Last MQTT topic`, and `Delivered at` all update.
+- `ros2-bridge`: open `http://127.0.0.1:4175`, login with `operator@ros2.demo` / `demo123`, use the `Publish Page` to send `cmd_vel`, switch to `Subscribe Page`, and confirm the live stream card, payload preview, and recent messages update for that topic.
+- `user-module-demo`: open the resolved `user-module-demo` URL printed by `pnpm dev:examples`, login with `member@user.demo` / `demo123`, click `Refresh me`, register a new account, then click `Logout` and confirm the session panel returns to `Signed out`.
+
+### CLI verification
+
+- Start the full stack with `pnpm dev:examples`.
+- Run `pnpm smoke:examples:local` to verify auth, `/users/*` aliases, example app routes, and the first live stream event for both IoT and ROS2 realtime endpoints.
+- Run `node --experimental-strip-types --test packages/client/test/browser-module.test.ts` to verify the browser module client behavior, including `db.user` and SSE keepalive handling.
 
 ## Cross-module changes
 

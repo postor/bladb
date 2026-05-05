@@ -1,6 +1,9 @@
 import process from "node:process";
 import {
   dockerComposeArgs,
+  exampleStackPortEnv,
+  resolveExampleStackPorts,
+  resolveComposeServiceUrl,
   runCommand,
   waitForHttpOk,
 } from "./lib/example-stack.mjs";
@@ -11,6 +14,11 @@ const composeFiles = [
   "docker/examples.dev.compose.yaml",
 ];
 const projectName = process.env.BLADB_DOCKER_PROJECT ?? "bladb-dev";
+const ports = await resolveExampleStackPorts();
+const composeEnv = {
+  ...process.env,
+  ...exampleStackPortEnv(ports),
+};
 
 await runCommand(
   "docker",
@@ -19,19 +27,64 @@ await runCommand(
     composeFiles,
     commandArgs: ["up", "--build", "-d", "--remove-orphans"],
   }),
-  { cwd: rootDir },
+  { cwd: rootDir, env: composeEnv },
 );
 
-await waitForHttpOk("http://127.0.0.1:8787/health", { label: "gateway health" });
-await waitForHttpOk("http://127.0.0.1:8080/health", { label: "ros2-backend health" });
-await waitForHttpOk("http://127.0.0.1:4173", { label: "flash-sale app" });
-await waitForHttpOk("http://127.0.0.1:4174", { label: "iot-realtime app" });
-await waitForHttpOk("http://127.0.0.1:4175", { label: "ros2-bridge app" });
+const gatewayUrl = await resolveComposeServiceUrl({
+  workdir: rootDir,
+  projectName,
+  composeFiles,
+  service: "gateway",
+  containerPort: 8787,
+});
+const ros2BackendUrl = await resolveComposeServiceUrl({
+  workdir: rootDir,
+  projectName,
+  composeFiles,
+  service: "ros2-backend",
+  containerPort: 8080,
+});
+const flashSaleUrl = await resolveComposeServiceUrl({
+  workdir: rootDir,
+  projectName,
+  composeFiles,
+  service: "flash-sale",
+  containerPort: 80,
+});
+const iotUrl = await resolveComposeServiceUrl({
+  workdir: rootDir,
+  projectName,
+  composeFiles,
+  service: "iot-realtime",
+  containerPort: 80,
+});
+const ros2Url = await resolveComposeServiceUrl({
+  workdir: rootDir,
+  projectName,
+  composeFiles,
+  service: "ros2-bridge",
+  containerPort: 80,
+});
+const userModuleDemoUrl = await resolveComposeServiceUrl({
+  workdir: rootDir,
+  projectName,
+  composeFiles,
+  service: "user-module-demo",
+  containerPort: 80,
+});
+
+await waitForHttpOk(`${gatewayUrl}/health`, { label: "gateway health" });
+await waitForHttpOk(`${ros2BackendUrl}/health`, { label: "ros2-backend health" });
+await waitForHttpOk(flashSaleUrl, { label: "flash-sale app" });
+await waitForHttpOk(iotUrl, { label: "iot-realtime app" });
+await waitForHttpOk(ros2Url, { label: "ros2-bridge app" });
+await waitForHttpOk(userModuleDemoUrl, { label: "user-module-demo app" });
 
 console.log(`Docker dev scope: ${projectName}`);
-console.log("- gateway: http://127.0.0.1:8787/health");
-console.log("- ros2-backend: http://127.0.0.1:8080/health");
-console.log("- flash-sale: http://127.0.0.1:4173");
-console.log("- iot-realtime: http://127.0.0.1:4174");
-console.log("- ros2-bridge: http://127.0.0.1:4175");
+console.log(`- gateway: ${gatewayUrl}/health`);
+console.log(`- ros2-backend: ${ros2BackendUrl}/health`);
+console.log(`- flash-sale: ${flashSaleUrl}`);
+console.log(`- iot-realtime: ${iotUrl}`);
+console.log(`- ros2-bridge: ${ros2Url}`);
+console.log(`- user-module-demo: ${userModuleDemoUrl}`);
 console.log("Stop with: pnpm dev:examples:down");

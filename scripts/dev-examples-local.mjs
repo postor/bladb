@@ -1,18 +1,15 @@
 import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
-import net from "node:net";
 import path from "node:path";
 import process from "node:process";
+import {
+  EXAMPLE_STACK_HOST,
+  exampleStackPortEnv,
+  exampleStackUrlsFromPorts,
+  resolveExampleStackPorts,
+} from "./lib/example-stack.mjs";
 
 const rootDir = process.cwd();
-const gatewayHost = "127.0.0.1";
-const services = [
-  { name: "gateway", port: 8787 },
-  { name: "flash-sale", port: 4173 },
-  { name: "iot-realtime", port: 4174 },
-  { name: "ros2-bridge", port: 4175 },
-];
-
 const children = [];
 let shuttingDown = false;
 
@@ -27,39 +24,92 @@ const gatewayExe = path.join(
 );
 
 try {
-  for (const service of services) {
-    if (await isPortBusy(service.port, gatewayHost)) {
-      throw new Error(
-        `port ${service.port} is already in use, stop the existing ${service.name} dev server first`,
-      );
-    }
-  }
+  const ports = await resolveExampleStackPorts();
+  const urls = exampleStackUrlsFromPorts(ports);
+  const sharedEnv = {
+    ...process.env,
+    ...exampleStackPortEnv(ports),
+  };
 
   await runBootstrap(cargoBin, ["build", "-p", "bladb-gateway"], "build:gateway");
   await access(gatewayExe);
 
-  startProcess(gatewayExe, ["serve", `${gatewayHost}:8787`], "gateway");
+  startProcess(gatewayExe, ["serve", `${EXAMPLE_STACK_HOST}:${ports.gateway}`], "gateway");
   startProcess(
     pnpmBin,
-    ["--dir", "apps/examples/flash-sale", "dev", "--host", gatewayHost, "--port", "4173"],
+    [
+      "--dir",
+      "apps/examples/flash-sale",
+      "dev",
+      "--host",
+      EXAMPLE_STACK_HOST,
+      "--port",
+      String(ports.flashSale),
+    ],
     "flash-sale",
+    {
+      ...sharedEnv,
+      VITE_BLADB_URL: urls.gatewayUrl,
+    },
   );
   startProcess(
     pnpmBin,
-    ["--dir", "apps/examples/iot-realtime", "dev", "--host", gatewayHost, "--port", "4174"],
+    [
+      "--dir",
+      "apps/examples/iot-realtime",
+      "dev",
+      "--host",
+      EXAMPLE_STACK_HOST,
+      "--port",
+      String(ports.iot),
+    ],
     "iot-realtime",
+    {
+      ...sharedEnv,
+      VITE_BLADB_URL: urls.gatewayUrl,
+    },
   );
   startProcess(
     pnpmBin,
-    ["--dir", "apps/examples/ros2-bridge", "dev", "--host", gatewayHost, "--port", "4175"],
+    [
+      "--dir",
+      "apps/examples/ros2-bridge",
+      "dev",
+      "--host",
+      EXAMPLE_STACK_HOST,
+      "--port",
+      String(ports.ros2),
+    ],
     "ros2-bridge",
+    {
+      ...sharedEnv,
+      VITE_BLADB_URL: urls.gatewayUrl,
+    },
+  );
+  startProcess(
+    pnpmBin,
+    [
+      "--dir",
+      "apps/examples/user-module-demo",
+      "dev",
+      "--host",
+      EXAMPLE_STACK_HOST,
+      "--port",
+      String(ports.userModuleDemo),
+    ],
+    "user-module-demo",
+    {
+      ...sharedEnv,
+      VITE_BLADB_URL: urls.gatewayUrl,
+    },
   );
 
   console.log("Bladb example stack is starting:");
-  console.log("- gateway: http://127.0.0.1:8787/health");
-  console.log("- flash-sale: http://127.0.0.1:4173");
-  console.log("- iot-realtime: http://127.0.0.1:4174");
-  console.log("- ros2-bridge: http://127.0.0.1:4175");
+  console.log(`- gateway: ${urls.gatewayUrl}/health`);
+  console.log(`- flash-sale: ${urls.flashSaleUrl}`);
+  console.log(`- iot-realtime: ${urls.iotUrl}`);
+  console.log(`- ros2-bridge: ${urls.ros2Url}`);
+  console.log(`- user-module-demo: ${urls.userModuleDemoUrl}`);
 } catch (error) {
   console.error(error.message);
   await shutdown(1);
@@ -95,9 +145,10 @@ async function runBootstrap(command, args, label) {
   });
 }
 
-function startProcess(command, args, label) {
+function startProcess(command, args, label, env = process.env) {
   const child = spawn(command, args, {
     cwd: rootDir,
+    env,
     stdio: "inherit",
     shell: shouldUseShell(command),
   });
@@ -128,18 +179,6 @@ async function shutdown(code) {
 
   await new Promise((resolve) => setTimeout(resolve, 200));
   process.exit(code);
-}
-
-async function isPortBusy(port, host) {
-  return await new Promise((resolve) => {
-    const socket = net.createConnection({ port, host });
-
-    socket.once("connect", () => {
-      socket.destroy();
-      resolve(true);
-    });
-    socket.once("error", () => resolve(false));
-  });
 }
 
 function shouldUseShell(command) {

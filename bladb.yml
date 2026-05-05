@@ -1,5 +1,37 @@
 mode: standalone
 
+modules:
+  official:
+    users:
+      enabled: true
+      session:
+        transport: gateway-auth
+      jwt:
+        algorithm: HS256
+        secret: ${BLADB_JWT_SECRET}
+      password:
+        algorithm: argon2id
+      storage:
+        engine: mysql
+        mysql:
+          dsn: ${BLADB_USERS_MYSQL_DSN}
+        mongodb:
+          uri: ${BLADB_USERS_MONGODB_URI}
+          database: bladb_users
+      mailer:
+        provider: smtp
+        from: no-reply@example.com
+        smtp:
+          host: smtp.example.com
+          port: 587
+          username: ${BLADB_SMTP_USER}
+          password: ${BLADB_SMTP_PASS}
+      features:
+        register: true
+        login: true
+        verifyEmail: false
+        resetPassword: false
+
 gateway:
   runtimes:
     - name: flash-sale
@@ -61,6 +93,15 @@ gateway:
         roles:
           - operator
 
+      - app: user-module-demo
+        uid: u_4001
+        tenantId: tenant_local
+        email: member@user.demo
+        password: demo123
+        displayName: Demo Member
+        roles:
+          - member
+
   modules:
     flashSale:
       item:
@@ -90,6 +131,7 @@ gateway:
         processingDelayMs: 900
 
     iot:
+      allowAnonymousAppAccess: true
       activeCount: 1824
       devices:
         - id: device-001

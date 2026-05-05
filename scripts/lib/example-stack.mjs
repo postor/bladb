@@ -1,12 +1,134 @@
 import crypto from "node:crypto";
+import net from "node:net";
 import { spawn } from "node:child_process";
 
-export function resolveExampleStackUrls(env = process.env) {
+export const EXAMPLE_STACK_HOST = "127.0.0.1";
+
+const EXAMPLE_STACK_SERVICES = [
+  {
+    key: "gateway",
+    urlKey: "gatewayUrl",
+    label: "gateway",
+    defaultPort: 8787,
+    portEnv: "BLADB_GATEWAY_PORT",
+    urlEnv: "BLADB_GATEWAY_URL",
+  },
+  {
+    key: "ros2Backend",
+    urlKey: "ros2BackendUrl",
+    label: "ros2-backend",
+    defaultPort: 8080,
+    portEnv: "BLADB_ROS2_BACKEND_PORT",
+    urlEnv: "BLADB_ROS2_BACKEND_URL",
+  },
+  {
+    key: "flashSale",
+    urlKey: "flashSaleUrl",
+    label: "flash-sale",
+    defaultPort: 4173,
+    portEnv: "BLADB_FLASH_SALE_PORT",
+    urlEnv: "BLADB_FLASH_SALE_URL",
+  },
+  {
+    key: "iot",
+    urlKey: "iotUrl",
+    label: "iot-realtime",
+    defaultPort: 4174,
+    portEnv: "BLADB_IOT_PORT",
+    urlEnv: "BLADB_IOT_URL",
+  },
+  {
+    key: "ros2",
+    urlKey: "ros2Url",
+    label: "ros2-bridge",
+    defaultPort: 4175,
+    portEnv: "BLADB_ROS2_PORT",
+    urlEnv: "BLADB_ROS2_URL",
+  },
+  {
+    key: "userModuleDemo",
+    urlKey: "userModuleDemoUrl",
+    label: "user-module-demo",
+    defaultPort: 4176,
+    portEnv: "BLADB_USER_MODULE_DEMO_PORT",
+    urlEnv: "BLADB_USER_MODULE_DEMO_URL",
+  },
+];
+
+export function resolveExampleStackUrls(env = process.env, host = EXAMPLE_STACK_HOST) {
+  const urls = {};
+
+  for (const service of EXAMPLE_STACK_SERVICES) {
+    const explicitUrl = normalizedString(env[service.urlEnv]);
+    if (explicitUrl) {
+      urls[service.urlKey] = explicitUrl;
+      continue;
+    }
+
+    const explicitPort = parsePortEnv(env[service.portEnv], service.portEnv);
+    urls[service.urlKey] = formatLocalUrl(host, explicitPort ?? service.defaultPort);
+  }
+
+  return urls;
+}
+
+export async function resolveExampleStackPorts({
+  env = process.env,
+  host = EXAMPLE_STACK_HOST,
+  isPortBusy = defaultIsPortBusy,
+} = {}) {
+  const assignedPorts = new Set();
+  const ports = {};
+
+  for (const service of EXAMPLE_STACK_SERVICES) {
+    const explicitPort = parsePortEnv(env[service.portEnv], service.portEnv);
+    if (explicitPort != null) {
+      if (assignedPorts.has(explicitPort)) {
+        throw new Error(
+          `${service.portEnv} conflicts with another example stack service on ${host}:${explicitPort}`,
+        );
+      }
+
+      if (await isPortBusy(explicitPort, host)) {
+        throw new Error(`${service.portEnv} is already in use on ${host}:${explicitPort}`);
+      }
+
+      assignedPorts.add(explicitPort);
+      ports[service.key] = explicitPort;
+      continue;
+    }
+
+    let candidatePort = service.defaultPort;
+    while (assignedPorts.has(candidatePort) || (await isPortBusy(candidatePort, host))) {
+      candidatePort += 1;
+    }
+
+    assignedPorts.add(candidatePort);
+    ports[service.key] = candidatePort;
+  }
+
+  return ports;
+}
+
+export function exampleStackUrlsFromPorts(ports, host = EXAMPLE_STACK_HOST) {
   return {
-    gatewayUrl: env.BLADB_GATEWAY_URL ?? "http://127.0.0.1:8787",
-    flashSaleUrl: env.BLADB_FLASH_SALE_URL ?? "http://127.0.0.1:4173",
-    iotUrl: env.BLADB_IOT_URL ?? "http://127.0.0.1:4174",
-    ros2Url: env.BLADB_ROS2_URL ?? "http://127.0.0.1:4175",
+    gatewayUrl: formatLocalUrl(host, ports.gateway),
+    ros2BackendUrl: formatLocalUrl(host, ports.ros2Backend),
+    flashSaleUrl: formatLocalUrl(host, ports.flashSale),
+    iotUrl: formatLocalUrl(host, ports.iot),
+    ros2Url: formatLocalUrl(host, ports.ros2),
+    userModuleDemoUrl: formatLocalUrl(host, ports.userModuleDemo),
+  };
+}
+
+export function exampleStackPortEnv(ports) {
+  return {
+    BLADB_GATEWAY_PORT: String(ports.gateway),
+    BLADB_ROS2_BACKEND_PORT: String(ports.ros2Backend),
+    BLADB_FLASH_SALE_PORT: String(ports.flashSale),
+    BLADB_IOT_PORT: String(ports.iot),
+    BLADB_ROS2_PORT: String(ports.ros2),
+    BLADB_USER_MODULE_DEMO_PORT: String(ports.userModuleDemo),
   };
 }
 
@@ -127,4 +249,43 @@ export async function waitForHttpOk(
   }
 
   throw new Error(`${label} did not become ready: ${lastError?.message ?? "unknown error"}`);
+}
+
+async function defaultIsPortBusy(port, host) {
+  return await new Promise((resolve) => {
+    const socket = net.createConnection({ port, host });
+
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once("error", () => resolve(false));
+  });
+}
+
+function normalizedString(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function parsePortEnv(value, envName) {
+  const normalized = normalizedString(value);
+  if (normalized == null) {
+    return null;
+  }
+
+  const port = Number.parseInt(normalized, 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`${envName} must be an integer between 1 and 65535`);
+  }
+
+  return port;
+}
+
+function formatLocalUrl(host, port) {
+  return `http://${host}:${port}`;
 }

@@ -14,3 +14,7 @@ services:
   ros2-bridge:
     ports:
       - "80"
+
+  user-module-demo:
+    ports:
+      - "80"

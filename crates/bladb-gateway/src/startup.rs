@@ -1,4 +1,4 @@
-use crate::local::{LocalGatewayConfig, LocalGatewayFileConfig};
+use crate::local::{LocalGatewayConfig, LocalGatewayFileConfig, OfficialModulesConfig};
 use serde::Deserialize;
 use std::{
     env, fs,
@@ -43,6 +43,8 @@ struct UnifiedConfigFile {
     #[serde(default)]
     runtime: UnifiedRuntimeSection,
     #[serde(default)]
+    modules: OfficialModulesConfig,
+    #[serde(default)]
     gateway: Option<LocalGatewayFileConfig>,
 }
 
@@ -67,9 +69,10 @@ pub fn load_gateway_startup(
 
     match parsed.mode.as_deref() {
         Some(mode) if mode.eq_ignore_ascii_case("standalone") => {
-            let gateway = parsed.gateway.ok_or_else(|| {
+            let mut gateway = parsed.gateway.ok_or_else(|| {
                 GatewayStartupError::MissingGatewaySection(config_path.display().to_string())
             })?;
+            gateway.official = parsed.modules;
             let base_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
             let app =
                 LocalGatewayConfig::from_file_config(gateway, base_dir).map_err(|reason| {
@@ -152,7 +155,9 @@ mod tests {
     }
 
     fn lock_env() -> std::sync::MutexGuard<'static, ()> {
-        temp_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        temp_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn workspace_root() -> PathBuf {
@@ -227,14 +232,21 @@ mod tests {
         let _role_guard = EnvGuard::clear(RUNTIME_ROLE_ENV);
         let config_path = workspace_root().join("bladb.yml");
 
-        let startup = load_gateway_startup(Some(&config_path), Path::new("."))
-            .expect("load startup");
+        let startup =
+            load_gateway_startup(Some(&config_path), Path::new(".")).expect("load startup");
         match startup {
             GatewayStartup::Standalone { config_path, app } => {
                 assert!(config_path.ends_with("bladb.yml"));
                 assert_eq!(app.runtimes.len(), 3);
                 assert_eq!(app.runtimes[0].name, "flash-sale");
-                assert_eq!(app.auth_users.len(), 3);
+                assert_eq!(app.auth_users.len(), 4);
+                assert!(app.official_users.is_some());
+                assert_eq!(
+                    app.official_users
+                        .as_ref()
+                        .and_then(|config| config.storage.engine.as_deref()),
+                    Some("mysql")
+                );
             }
             other => panic!("expected standalone startup, got {other:?}"),
         }

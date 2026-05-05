@@ -63,6 +63,13 @@ try {
     service: "ros2-bridge",
     containerPort: 80,
   });
+  const userModuleDemoUrl = await resolveComposeServiceUrl({
+    workdir: rootDir,
+    projectName,
+    composeFiles,
+    service: "user-module-demo",
+    containerPort: 80,
+  });
 
   console.log(`Docker smoke scope: ${projectName}`);
   console.log(`- gateway: ${gatewayUrl}`);
@@ -70,12 +77,14 @@ try {
   console.log(`- flash-sale: ${flashSaleUrl}`);
   console.log(`- iot-realtime: ${iotUrl}`);
   console.log(`- ros2-bridge: ${ros2Url}`);
+  console.log(`- user-module-demo: ${userModuleDemoUrl}`);
 
   await waitForHttpOk(`${gatewayUrl}/health`, { label: "gateway health" });
   await waitForHttpOk(`${ros2BackendUrl}/health`, { label: "ros2-backend health" });
   await waitForHttpOk(flashSaleUrl, { label: "flash-sale app" });
   await waitForHttpOk(iotUrl, { label: "iot-realtime app" });
   await waitForHttpOk(ros2Url, { label: "ros2-bridge app" });
+  await waitForHttpOk(userModuleDemoUrl, { label: "user-module-demo app" });
 
   await runCommand("node", ["scripts/smoke-examples-local.mjs"], {
     cwd: rootDir,
@@ -85,6 +94,7 @@ try {
       BLADB_FLASH_SALE_URL: flashSaleUrl,
       BLADB_IOT_URL: iotUrl,
       BLADB_ROS2_URL: ros2Url,
+      BLADB_USER_MODULE_DEMO_URL: userModuleDemoUrl,
     },
   });
 } finally {

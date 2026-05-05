@@ -1,222 +1,87 @@
-import { TENANT_ID, UID, key } from "@bladb/client";
-import { type GatewaySessionState, useGatewaySession, useMutation, useQuery, useLiveValue } from "@bladb/react";
-import { useState } from "react";
-import { db, iotApi, iotAuth, type CommandHistoryEntry, type IotSession } from "./bladb";
+import { BladbError } from "@bladb/client";
+import { useMutation, useQuery, useLiveValue } from "@bladb/react";
+import { useEffect, useState } from "react";
+import {
+  iotGuestApi,
+  type CommandEvent,
+  type PublishCommandResult
+} from "./bladb";
 
-interface Device {
-  id: string;
-  name: string;
-  status: "online" | "offline";
-}
-
-interface TelemetryPoint {
-  deviceId: string;
-  throughput: number;
-  temp: number;
-  ts: string;
-}
+const isAuthExpiredError = (error: unknown): error is BladbError =>
+  error instanceof BladbError && error.status === 401 && error.code === "AUTH_EXPIRED";
 
 export default function App() {
-  const auth = useGatewaySession<IotSession>(iotAuth);
-
-  if (!auth.ready && !auth.session) {
-    return (
-      <main className="page auth-page">
-        <section className="hero">
-          <p className="eyebrow">Realtime telemetry demo</p>
-          <h1>IoT Control Room</h1>
-          <p className="lede">Restoring operator session...</p>
-        </section>
-      </main>
-    );
-  }
-
-  if (!auth.session) {
-    return <IotAuth auth={auth} />;
-  }
-
-  return (
-    <IotDashboard
-      onLogout={auth.logout}
-      session={auth.session}
-    />
-  );
+  return <IotDashboard />;
 }
 
-function IotAuth({
-  auth
-}: {
-  auth: GatewaySessionState<IotSession>;
-}) {
-  const [loginEmail, setLoginEmail] = useState("operator@iot.demo");
-  const [loginPassword, setLoginPassword] = useState("demo123");
-  const [registerName, setRegisterName] = useState("Plant Operator");
-  const [registerEmail, setRegisterEmail] = useState("new-operator@iot.demo");
-  const [registerPassword, setRegisterPassword] = useState("demo123");
-  const [error, setError] = useState<string | null>(null);
-
-  const login = useMutation(async () => {
-    return await auth.login({
-      app: "iot-realtime",
-      email: loginEmail,
-      password: loginPassword
-    });
-  });
-
-  const register = useMutation(async () => {
-    return await auth.register({
-      app: "iot-realtime",
-      email: registerEmail,
-      password: registerPassword,
-      displayName: registerName
-    });
-  });
-
-  const wrap = async (runner: () => Promise<unknown>) => {
-    setError(null);
-    try {
-      await runner();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unknown auth error");
-    }
-  };
-
-  return (
-    <main className="page auth-page">
-      <section className="hero">
-        <p className="eyebrow">Realtime telemetry demo</p>
-        <h1>IoT Control Room</h1>
-        <p className="lede">
-          Login first, then the dashboard will hydrate tenant-scoped Mongo, Redis, and MQTT flows
-          with the current operator identity.
-        </p>
-      </section>
-
-      <section className="auth-grid">
-        <article className="panel accent">
-          <span className="label">Demo sign-in</span>
-          <h2>Login</h2>
-          <p className="muted">
-            Seed account: <code>operator@iot.demo</code> / <code>demo123</code>
-          </p>
-          <label className="field">
-            <span>Email</span>
-            <input onChange={(event) => setLoginEmail(event.target.value)} value={loginEmail} />
-          </label>
-          <label className="field">
-            <span>Password</span>
-            <input
-              onChange={(event) => setLoginPassword(event.target.value)}
-              type="password"
-              value={loginPassword}
-            />
-          </label>
-          <button className="primary" disabled={login.loading} onClick={() => void wrap(login.run)}>
-            {login.loading ? "Signing in..." : "Login"}
-          </button>
-        </article>
-
-        <article className="panel">
-          <span className="label">New operator</span>
-          <h2>Register</h2>
-          <label className="field">
-            <span>Display name</span>
-            <input onChange={(event) => setRegisterName(event.target.value)} value={registerName} />
-          </label>
-          <label className="field">
-            <span>Email</span>
-            <input onChange={(event) => setRegisterEmail(event.target.value)} value={registerEmail} />
-          </label>
-          <label className="field">
-            <span>Password</span>
-            <input
-              onChange={(event) => setRegisterPassword(event.target.value)}
-              type="password"
-              value={registerPassword}
-            />
-          </label>
-          <button
-            className="primary secondary"
-            disabled={register.loading}
-            onClick={() => void wrap(register.run)}
-          >
-            {register.loading ? "Creating..." : "Register"}
-          </button>
-        </article>
-      </section>
-
-      {error ? <p className="banner banner-error">{error}</p> : null}
-    </main>
-  );
-}
-
-function IotDashboard({
-  session,
-  onLogout
-}: {
-  session: IotSession;
-  onLogout: () => void;
-}) {
+function IotDashboard() {
   const [selectedDeviceId, setSelectedDeviceId] = useState("device-001");
+  const [latestEvent, setLatestEvent] = useState<CommandEvent | null>(null);
+  const [streamState, setStreamState] = useState<"connecting" | "live" | "error">("connecting");
 
-  const devices = useQuery(
-    () =>
-      db
-        .withMeta({
-          resource: "devices.listMine",
-          policy: "iot.devices.list-mine"
-        })
-        .mongo("devices")
-        .find<Device[]>({
-          ownerUid: UID,
-          tenantId: TENANT_ID
-        }),
-    []
-  );
+  const devices = useQuery(() => iotGuestApi.devices(), []);
 
-  const telemetry = useLiveValue(
-    () =>
-      db
-        .withMeta({
-          resource: "telemetry.readLatest",
-          policy: "iot.telemetry.read-latest",
-          params: {
-            deviceId: selectedDeviceId
-          }
-        })
-        .mongo("telemetry_latest")
-        .findOne<TelemetryPoint>({
-          ownerUid: UID,
-          tenantId: TENANT_ID,
-          deviceId: selectedDeviceId
-        }),
-    2000,
-    [selectedDeviceId]
-  );
+  const telemetry = useLiveValue(() => iotGuestApi.telemetry(selectedDeviceId), 2000, [selectedDeviceId]);
 
-  const activeCount = useLiveValue(
-    () =>
-      db
-        .withMeta({
-          resource: "iot.activeCount",
-          policy: "iot.active-count.read"
-        })
-        .redis.get<number>(key`iot:${TENANT_ID}:active-count`),
-    2000,
-    []
-  );
+  const activeCount = useLiveValue(() => iotGuestApi.activeCount(), 2000, []);
 
-  const commands = useLiveValue(() => iotApi.commandHistory(), 2500, []);
+  const commands = useLiveValue(() => iotGuestApi.commandHistory(), 2500, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLatestEvent(null);
+    setStreamState("connecting");
+
+    void iotGuestApi
+      .commandEvents(selectedDeviceId, {
+        signal: controller.signal,
+        onOpen() {
+          setStreamState("live");
+        },
+        onMessage(payload) {
+          setLatestEvent(payload);
+          setStreamState("live");
+          void commands.refresh();
+        }
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        if (isAuthExpiredError(error)) {
+          setStreamState("error");
+          return;
+        }
+        console.error("iot mqtt stream failed", error);
+        setStreamState("error");
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [selectedDeviceId]);
+
+  useEffect(() => {
+    if (
+      isAuthExpiredError(devices.error) ||
+      isAuthExpiredError(telemetry.error) ||
+      isAuthExpiredError(activeCount.error) ||
+      isAuthExpiredError(commands.error)
+    ) {
+      setStreamState("error");
+    }
+  }, [activeCount.error, commands.error, devices.error, telemetry.error]);
 
   const reboot = useMutation(async () => {
-    await iotApi.publishCommand({
+    const result = await iotGuestApi.publishCommand({
       deviceId: selectedDeviceId,
       action: "reboot"
     });
     await telemetry.refresh();
     await commands.refresh();
     return {
-      selectedDeviceId
+      selectedDeviceId,
+      commandId: result.commandId
     };
   });
 
@@ -227,17 +92,14 @@ function IotDashboard({
           <p className="eyebrow">Realtime telemetry demo</p>
           <h1>IoT Control Room</h1>
           <p className="lede">
-            Signed in as <strong>{session.user.displayName}</strong>. Device reads and command
-            command flows now run under the current operator session.
+            Anonymous example mode is enabled. Reads and command flows currently use the IoT
+            runtime default identity so the page is directly usable without logging in.
           </p>
         </div>
         <div className="session-card">
-          <span className="label">Operator session</span>
-          <strong>{session.user.email}</strong>
-          <small>{session.user.uid}</small>
-          <button className="ghost" onClick={onLogout}>
-            Logout
-          </button>
+          <span className="label">Example identity</span>
+          <strong>operator@iot.demo</strong>
+          <small>u_1001 / tenant_a</small>
         </div>
       </section>
 
@@ -251,7 +113,10 @@ function IotDashboard({
         <article className="panel">
           <span className="label">Selected device</span>
           <h2>{selectedDeviceId}</h2>
-          <p className="muted">{session.user.tenantId}</p>
+          <p className="muted">tenant_a</p>
+          <p className="muted">
+            MQTT stream: {streamState === "live" ? "subscribed" : streamState === "connecting" ? "connecting..." : "reconnect needed"}
+          </p>
         </article>
       </section>
 
@@ -289,10 +154,28 @@ function IotDashboard({
               <p>{telemetry.data?.ts ?? "--"}</p>
             </div>
           </div>
+          <div className="telemetry-card">
+            <div>
+              <small>Last MQTT action</small>
+              <p>{latestEvent?.action ?? "--"}</p>
+            </div>
+            <div>
+              <small>Last MQTT topic</small>
+              <p>{latestEvent?.topic ?? "--"}</p>
+            </div>
+            <div>
+              <small>Delivered at</small>
+              <p>{latestEvent?.createdAt ?? "--"}</p>
+            </div>
+          </div>
           <button className="primary" disabled={reboot.loading} onClick={() => void reboot.run()}>
             {reboot.loading ? "Sending..." : "Reboot device"}
           </button>
-          {reboot.data ? <p className="banner">Command queued for {reboot.data.selectedDeviceId}.</p> : null}
+          {reboot.data ? (
+            <p className="banner">
+              Command queued for {reboot.data.selectedDeviceId}. Waiting for MQTT event {reboot.data.commandId}.
+            </p>
+          ) : null}
         </article>
       </section>
 

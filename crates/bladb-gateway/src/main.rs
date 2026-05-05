@@ -1,5 +1,7 @@
 use bladb_core::protocol::{GatewayFailure, GatewayRequest, GatewaySuccess, ResponseMeta};
-use bladb_gateway::{load_gateway_startup, GatewayStartup, LocalGatewayApp, Ros2Subscription};
+use bladb_gateway::{
+    load_gateway_startup, GatewayStartup, IotSubscription, LocalGatewayApp, Ros2Subscription,
+};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -10,6 +12,7 @@ use std::{
     process,
     sync::Arc,
     thread,
+    time::Duration,
 };
 
 fn main() {
@@ -79,6 +82,14 @@ fn handle_client(mut stream: TcpStream, state: &Arc<LocalGatewayApp>) -> Result<
             return stream_ros2_subscription(stream, subscription);
         }
     }
+    if request.method == "GET" && request.path.starts_with("/apps/iot-realtime/commands/") {
+        if let Some(subscription) = state
+            .open_iot_stream(&request.path, bearer_token.as_deref())
+            .map_err(|error| error.message.clone())?
+        {
+            return stream_iot_subscription(stream, subscription);
+        }
+    }
     if request.method != "OPTIONS" && request.path.starts_with("/apps/") {
         let response = match parse_optional_json_body(request.body.clone()) {
             Ok(body) => match state.handle_app_api(
@@ -124,33 +135,52 @@ fn handle_client(mut stream: TcpStream, state: &Arc<LocalGatewayApp>) -> Result<
         ("POST", "/route") => handle_gateway_request(request.body, |gateway_request| {
             state.inspect_request_for_token(gateway_request, bearer_token.as_deref())
         })?,
-        ("POST", "/auth/login") => handle_json_body(request.body, |payload| {
-            let app = required_string(&payload, "app")?;
-            let email = required_string(&payload, "email")?;
-            let password = required_string(&payload, "password")?;
-            match state.login(&app, &email, &password) {
-                Ok(data) => Ok(http_json(
-                    StatusCode::Ok,
-                    json!({ "ok": true, "data": data }),
-                )),
-                Err(error) => error_response(error),
-            }
-        })?,
-        ("POST", "/auth/register") => handle_json_body(request.body, |payload| {
-            let app = required_string(&payload, "app")?;
-            let email = required_string(&payload, "email")?;
-            let password = required_string(&payload, "password")?;
-            let display_name = required_string(&payload, "displayName")?;
-            match state.register(&app, &email, &password, &display_name) {
-                Ok(data) => Ok(http_json(
-                    StatusCode::Ok,
-                    json!({ "ok": true, "data": data }),
-                )),
-                Err(error) => error_response(error),
-            }
-        })?,
-        ("GET", "/auth/me") => match bearer_token.as_deref() {
-            Some(token) => match state.me(token) {
+        ("POST", "/auth/login") | ("POST", "/users/login") => {
+            handle_json_body(request.body, |payload| {
+                let app = required_string(&payload, "app")?;
+                let email = required_string(&payload, "email")?;
+                let password = required_string(&payload, "password")?;
+                match state.user_login(&app, &email, &password) {
+                    Ok(data) => Ok(http_json(
+                        StatusCode::Ok,
+                        json!({ "ok": true, "data": data }),
+                    )),
+                    Err(error) => error_response(error),
+                }
+            })?
+        }
+        ("POST", "/auth/register") | ("POST", "/users/register") => {
+            handle_json_body(request.body, |payload| {
+                let app = required_string(&payload, "app")?;
+                let email = required_string(&payload, "email")?;
+                let password = required_string(&payload, "password")?;
+                let display_name = required_string(&payload, "displayName")?;
+                match state.user_register(&app, &email, &password, &display_name) {
+                    Ok(data) => Ok(http_json(
+                        StatusCode::Ok,
+                        json!({ "ok": true, "data": data }),
+                    )),
+                    Err(error) => error_response(error),
+                }
+            })?
+        }
+        ("GET", "/auth/me") | ("GET", "/users/me") => match bearer_token.as_deref() {
+            Some(token) => match state.user_me(token) {
+                Ok(data) => http_json(StatusCode::Ok, json!({ "ok": true, "data": data })),
+                Err(error) => error_response(error)?,
+            },
+            None => http_json(
+                StatusCode::Unauthorized,
+                json!({
+                    "ok": false,
+                    "code": "AUTH_EXPIRED",
+                    "message": "missing bearer token",
+                    "meta": { "traceId": "dev-trace" }
+                }),
+            ),
+        },
+        ("POST", "/auth/logout") | ("POST", "/users/logout") => match bearer_token.as_deref() {
+            Some(token) => match state.user_logout(token) {
                 Ok(data) => http_json(StatusCode::Ok, json!({ "ok": true, "data": data })),
                 Err(error) => error_response(error)?,
             },
@@ -620,47 +650,207 @@ fn stream_ros2_subscription(
 
     match subscription {
         Ros2Subscription::Local(receiver) => {
-            for message in receiver {
-                let payload = serde_json::to_string(&json!({
-                    "id": message.id,
-                    "robotId": message.robot_id,
-                    "topicName": message.topic_name,
-                    "fullTopic": message.full_topic,
-                    "messageType": message.message_type,
-                    "payload": message.payload,
-                    "issuedBy": message.issued_by,
-                    "createdAt": message.created_at
-                }))
-                .map_err(|error| format!("failed to encode stream payload: {error}"))?;
-                stream
-                    .write_all(format!("event: ros2-message\ndata: {payload}\n\n").as_bytes())
-                    .map_err(|error| format!("failed to write stream event: {error}"))?;
-                stream
-                    .flush()
-                    .map_err(|error| format!("failed to flush stream event: {error}"))?;
+            use std::sync::mpsc::RecvTimeoutError;
+
+            println!("stream.lifecycle source=gateway module=ros2 phase=open mode=local");
+            let mut delivered = 0_u64;
+            loop {
+                match receiver.recv_timeout(Duration::from_secs(5)) {
+                    Ok(message) => {
+                        delivered += 1;
+                        if delivered == 1 {
+                            println!(
+                                "stream.lifecycle source=gateway module=ros2 phase=first-event mode=local topic={} delivered={}",
+                                message.topic_name, delivered
+                            );
+                        }
+                        let payload = serde_json::to_string(&json!({
+                            "id": message.id,
+                            "robotId": message.robot_id,
+                            "topicName": message.topic_name,
+                            "fullTopic": message.full_topic,
+                            "messageType": message.message_type,
+                            "payload": message.payload,
+                            "issuedBy": message.issued_by,
+                            "createdAt": message.created_at
+                        }))
+                        .map_err(|error| format!("failed to encode stream payload: {error}"))?;
+                        stream
+                            .write_all(
+                                format!("event: ros2-message\ndata: {payload}\n\n").as_bytes(),
+                            )
+                            .map_err(|error| {
+                                eprintln!(
+                                    "stream.lifecycle source=gateway module=ros2 phase=error mode=local delivered={} message=\"failed to write stream event: {}\"",
+                                    delivered, error
+                                );
+                                format!("failed to write stream event: {error}")
+                            })?;
+                        stream
+                            .flush()
+                            .map_err(|error| {
+                                eprintln!(
+                                    "stream.lifecycle source=gateway module=ros2 phase=error mode=local delivered={} message=\"failed to flush stream event: {}\"",
+                                    delivered, error
+                                );
+                                format!("failed to flush stream event: {error}")
+                            })?;
+                    }
+                    Err(RecvTimeoutError::Timeout) => {
+                        stream
+                            .write_all(b": keepalive\n\n")
+                            .map_err(|error| format!("failed to write stream heartbeat: {error}"))?;
+                        stream
+                            .flush()
+                            .map_err(|error| format!("failed to flush stream heartbeat: {error}"))?;
+                    }
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
             }
+            println!(
+                "stream.lifecycle source=gateway module=ros2 phase=close mode=local delivered={}",
+                delivered
+            );
             Ok(())
         }
         Ros2Subscription::Proxy { url } => {
+            println!(
+                "stream.lifecycle source=gateway module=ros2 phase=open mode=proxy url={}",
+                url
+            );
             let response = ureq::get(&url)
                 .call()
-                .map_err(|error| format!("failed to open proxied ros2 stream: {error}"))?;
+                .map_err(|error| {
+                    eprintln!(
+                        "stream.lifecycle source=gateway module=ros2 phase=error mode=proxy message=\"failed to open proxied ros2 stream: {}\"",
+                        error
+                    );
+                    format!("failed to open proxied ros2 stream: {error}")
+                })?;
             let mut reader = response.into_reader();
             let mut buffer = [0_u8; 4096];
+            let mut forwarded_bytes = 0_u64;
+            let mut first_chunk_logged = false;
             loop {
                 let bytes_read = reader
                     .read(&mut buffer)
-                    .map_err(|error| format!("failed to read proxied ros2 stream: {error}"))?;
+                    .map_err(|error| {
+                        eprintln!(
+                            "stream.lifecycle source=gateway module=ros2 phase=error mode=proxy forwardedBytes={} message=\"failed to read proxied ros2 stream: {}\"",
+                            forwarded_bytes, error
+                        );
+                        format!("failed to read proxied ros2 stream: {error}")
+                    })?;
                 if bytes_read == 0 {
                     break;
                 }
+                forwarded_bytes += bytes_read as u64;
+                if !first_chunk_logged {
+                    first_chunk_logged = true;
+                    println!(
+                        "stream.lifecycle source=gateway module=ros2 phase=first-event mode=proxy forwardedBytes={}",
+                        forwarded_bytes
+                    );
+                }
                 stream
                     .write_all(&buffer[..bytes_read])
-                    .map_err(|error| format!("failed to write proxied ros2 stream: {error}"))?;
+                    .map_err(|error| {
+                        eprintln!(
+                            "stream.lifecycle source=gateway module=ros2 phase=error mode=proxy forwardedBytes={} message=\"failed to write proxied ros2 stream: {}\"",
+                            forwarded_bytes, error
+                        );
+                        format!("failed to write proxied ros2 stream: {error}")
+                    })?;
                 stream
                     .flush()
-                    .map_err(|error| format!("failed to flush proxied ros2 stream: {error}"))?;
+                    .map_err(|error| {
+                        eprintln!(
+                            "stream.lifecycle source=gateway module=ros2 phase=error mode=proxy forwardedBytes={} message=\"failed to flush proxied ros2 stream: {}\"",
+                            forwarded_bytes, error
+                        );
+                        format!("failed to flush proxied ros2 stream: {error}")
+                    })?;
             }
+            println!(
+                "stream.lifecycle source=gateway module=ros2 phase=close mode=proxy forwardedBytes={}",
+                forwarded_bytes
+            );
+            Ok(())
+        }
+    }
+}
+
+fn stream_iot_subscription(
+    mut stream: TcpStream,
+    subscription: IotSubscription,
+) -> Result<(), String> {
+    stream
+        .write_all(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: content-type, authorization\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n\r\n",
+        )
+        .map_err(|error| format!("failed to write stream headers: {error}"))?;
+
+    match subscription {
+        IotSubscription::Local(receiver) => {
+            use std::sync::mpsc::RecvTimeoutError;
+
+            println!("stream.lifecycle source=gateway module=iot phase=open mode=local");
+            let mut delivered = 0_u64;
+            loop {
+                match receiver.recv_timeout(Duration::from_secs(5)) {
+                    Ok(message) => {
+                        delivered += 1;
+                        if delivered == 1 {
+                            println!(
+                                "stream.lifecycle source=gateway module=iot phase=first-event mode=local deviceId={} delivered={}",
+                                message.device_id, delivered
+                            );
+                        }
+                        let payload = serde_json::to_string(&json!({
+                            "id": message.id,
+                            "deviceId": message.device_id,
+                            "topic": message.topic,
+                            "action": message.action,
+                            "issuedBy": message.issued_by,
+                            "createdAt": message.created_at
+                        }))
+                        .map_err(|error| format!("failed to encode stream payload: {error}"))?;
+                        stream
+                            .write_all(
+                                format!("event: mqtt-message\ndata: {payload}\n\n").as_bytes(),
+                            )
+                            .map_err(|error| {
+                                eprintln!(
+                                    "stream.lifecycle source=gateway module=iot phase=error mode=local delivered={} message=\"failed to write stream event: {}\"",
+                                    delivered, error
+                                );
+                                format!("failed to write stream event: {error}")
+                            })?;
+                        stream
+                            .flush()
+                            .map_err(|error| {
+                                eprintln!(
+                                    "stream.lifecycle source=gateway module=iot phase=error mode=local delivered={} message=\"failed to flush stream event: {}\"",
+                                    delivered, error
+                                );
+                                format!("failed to flush stream event: {error}")
+                            })?;
+                    }
+                    Err(RecvTimeoutError::Timeout) => {
+                        stream
+                            .write_all(b": keepalive\n\n")
+                            .map_err(|error| format!("failed to write stream heartbeat: {error}"))?;
+                        stream
+                            .flush()
+                            .map_err(|error| format!("failed to flush stream heartbeat: {error}"))?;
+                    }
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
+            }
+            println!(
+                "stream.lifecycle source=gateway module=iot phase=close mode=local delivered={}",
+                delivered
+            );
             Ok(())
         }
     }
@@ -675,35 +865,52 @@ fn run_ros2_cli(args: &[String]) -> Result<(), String> {
 }
 
 fn run_ros2_pub(args: &[String]) -> Result<(), String> {
-    let gateway_url = args.first().ok_or_else(|| "missing gateway url".to_string())?;
-    let token = args.get(1).ok_or_else(|| "missing bearer token".to_string())?;
-    let raw_body = args.get(2).ok_or_else(|| "missing publish json body".to_string())?;
+    let gateway_url = args
+        .first()
+        .ok_or_else(|| "missing gateway url".to_string())?;
+    let token = args
+        .get(1)
+        .ok_or_else(|| "missing bearer token".to_string())?;
+    let raw_body = args
+        .get(2)
+        .ok_or_else(|| "missing publish json body".to_string())?;
     let body_source = if let Some(path) = raw_body.strip_prefix('@') {
-        fs::read_to_string(path).map_err(|error| format!("failed to read publish json file: {error}"))?
+        fs::read_to_string(path)
+            .map_err(|error| format!("failed to read publish json file: {error}"))?
     } else {
         raw_body.clone()
     };
     let body: Value = serde_json::from_str(&body_source)
         .map_err(|error| format!("invalid publish json body: {error}"))?;
 
-    let response = ureq::post(&format!("{}/apps/ros2-bridge/messages", gateway_url.trim_end_matches('/')))
-        .set("authorization", &format!("Bearer {token}"))
-        .set("content-type", "application/json")
-        .send_string(&body.to_string())
-        .map_err(|error| format!("ros2 pub request failed: {error}"))?;
+    let response = ureq::post(&format!(
+        "{}/apps/ros2-bridge/messages",
+        gateway_url.trim_end_matches('/')
+    ))
+    .set("authorization", &format!("Bearer {token}"))
+    .set("content-type", "application/json")
+    .send_string(&body.to_string())
+    .map_err(|error| format!("ros2 pub request failed: {error}"))?;
     let value: Value = serde_json::from_reader(response.into_reader())
         .map_err(|error| format!("failed to parse ros2 pub response: {error}"))?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&value).map_err(|error| format!("failed to render ros2 pub response: {error}"))?
+        serde_json::to_string_pretty(&value)
+            .map_err(|error| format!("failed to render ros2 pub response: {error}"))?
     );
     Ok(())
 }
 
 fn run_ros2_sub(args: &[String]) -> Result<(), String> {
-    let gateway_url = args.first().ok_or_else(|| "missing gateway url".to_string())?;
-    let token = args.get(1).ok_or_else(|| "missing bearer token".to_string())?;
-    let topic_name = args.get(2).ok_or_else(|| "missing topic name".to_string())?;
+    let gateway_url = args
+        .first()
+        .ok_or_else(|| "missing gateway url".to_string())?;
+    let token = args
+        .get(1)
+        .ok_or_else(|| "missing bearer token".to_string())?;
+    let topic_name = args
+        .get(2)
+        .ok_or_else(|| "missing topic name".to_string())?;
     let url = format!(
         "{}/apps/ros2-bridge/messages/{}/stream",
         gateway_url.trim_end_matches('/'),

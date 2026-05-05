@@ -56,6 +56,7 @@ export const ros2Module = createBrowserAppModule({
   }
 });
 
+export const ros2User = ros2Module.user;
 export const ros2Auth = ros2Module.auth;
 export const ros2Api = ros2Module.api;
 export const db = ros2Module.db;

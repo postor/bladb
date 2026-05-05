@@ -104,6 +104,14 @@
 - Apply when: Continuing implementation, refactoring, adding requested features, updating docs, or performing other normal workspace-local work already implied by the user's instruction.
 - Avoid when: The next step would require elevation, destructive operations, system-wide mutation, or choosing among materially different paths the user has not accepted.
 
+## 2026-05-05 - Cross-layer work should always keep a visible execution plan
+
+- Context: Work that spans Rust runtime code, gateway wiring, Docker services, CLI behavior, and frontend validation is easy to lose track of when progress is only implicit.
+- Decision: For non-trivial or multi-layer tasks, keep an explicit plan updated as steps complete or change.
+- Why: A visible plan improves continuity, reduces repeated context recovery, and makes it easier to spot what remains versus what is already verified.
+- Apply when: Debugging full-stack flows, implementing distributed features, refactoring across crates and apps, or coordinating code plus runtime verification.
+- Avoid when: The task is a truly small single-step edit where a formal plan would add more noise than clarity.
+
 ## 2026-05-04 - Browser app modules should own auth persistence
 
 - Context: Example frontends still had to wire `db.auth`, `sessionStore`, and `useGatewaySession(...)` by hand even after introducing module-level API clients.
@@ -111,6 +119,30 @@
 - Why: This keeps frontend code focused on business flows, reduces repeated storage wiring, and makes example integrations closer to real production modules.
 - Apply when: Designing browser-facing module SDK helpers, example app setup files, and future Vue or React module wrappers.
 - Avoid when: The runtime is not browser-based and cannot rely on local session persistence.
+
+## 2026-05-05 - Official module APIs should lead transport naming
+
+- Context: The repo originally exposed session flows as `db.auth` because the standalone gateway transport was organized around `/auth/*`, while the desired long-term product shape is a first-class user module.
+- Decision: Promote `db.user` as the official developer API first, while keeping `db.auth` and `/auth/*` as compatibility/backing transport during transitional versions.
+- Why: Public module boundaries should reflect the product model, not temporary HTTP route naming. This keeps frontend usage stable while the server implementation grows into the official module contract.
+- Apply when: Introducing official modules whose long-term API boundary is clearer than the current bootstrap implementation.
+- Avoid when: The public API boundary is still highly uncertain and likely to churn immediately.
+
+## 2026-05-05 - Official route aliases should be verified, not just documented
+
+- Context: Adding `/users/*` as the public-facing transport alias for the official user module is easy to document, but easy to miss in automated verification if smoke tests only keep hitting `/auth/*`.
+- Decision: When an official API or route alias is introduced, add it to smoke or end-to-end verification instead of relying on implementation review alone.
+- Why: This catches drift between public contract, compatibility transport, and real runtime behavior before docs and code silently diverge.
+- Apply when: Adding aliases, public compatibility routes, or new official module entrypoints.
+- Avoid when: The route is intentionally private and not part of the supported developer-facing contract.
+
+## 2026-05-05 - Realtime example credibility needs browser-visible proof
+
+- Context: MQTT and ROS2 integrations can pass backend or protocol tests while still failing to demonstrate value clearly in the frontend.
+- Decision: For realtime example features, require at least one browser-visible verification path that shows state changing from a live event, not only a successful publish call.
+- Why: This validates the actual product story for frontend developers and catches UI/session/stream integration issues that backend tests miss.
+- Apply when: Shipping example publish-subscribe flows, SSE-driven dashboards, or tenant-scoped live updates.
+- Avoid when: The feature is intentionally backend-only and has no browser-facing contract.
 
 ## 2026-05-04 - Business commands should prefer module app APIs over frontend orchestration
 

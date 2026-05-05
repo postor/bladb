@@ -59,5 +59,6 @@ export const flashSaleModule = createBrowserAppModule({
 });
 
 export const db = flashSaleModule.db;
+export const flashSaleUser = flashSaleModule.user;
 export const flashSaleAuth = flashSaleModule.auth;
 export const flashSaleApi = flashSaleModule.api;

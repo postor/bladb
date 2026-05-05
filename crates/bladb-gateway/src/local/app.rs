@@ -1,9 +1,11 @@
 use super::{
-    auth::{AuthSession, InMemoryAuthService},
+    auth::AuthSession,
+    auth::InMemoryUserConfig,
     config::LocalGatewayConfig,
     flash_sale::FlashSaleModule,
-    iot::IotModule,
+    iot::{IotModule, IotSubscription},
     ros2::{Ros2Module, Ros2Subscription},
+    user::OfficialUserModule,
     AppApiHandler, AppApiRequest, AppError, GatewayRuntimeConfig,
 };
 use crate::{
@@ -19,7 +21,7 @@ pub struct LocalGatewayApp {
     gateways: Vec<GatewayRuntime>,
     modules: RuntimeRegistry,
     app_apis: Vec<Arc<dyn AppApiHandler>>,
-    auth_service: Arc<InMemoryAuthService>,
+    user_module: OfficialUserModule,
 }
 
 #[derive(Clone)]
@@ -35,7 +37,7 @@ impl LocalGatewayApp {
         runtime_configs: Vec<GatewayRuntimeConfig>,
         modules: RuntimeRegistry,
         app_apis: Vec<Arc<dyn AppApiHandler>>,
-        auth_service: Arc<InMemoryAuthService>,
+        user_module: OfficialUserModule,
     ) -> Result<Self, String> {
         let gateways = runtime_configs
             .iter()
@@ -58,13 +60,13 @@ impl LocalGatewayApp {
             gateways,
             modules,
             app_apis,
-            auth_service,
+            user_module,
         })
     }
 
     pub fn with_standard_modules(
         runtime_configs: Vec<GatewayRuntimeConfig>,
-        auth_service: Arc<InMemoryAuthService>,
+        user_module: OfficialUserModule,
     ) -> Result<Self, String> {
         let flash_sale = Arc::new(FlashSaleModule::new());
         let iot = Arc::new(IotModule::new());
@@ -77,12 +79,21 @@ impl LocalGatewayApp {
             runtime_configs,
             RuntimeRegistry::new(modules),
             app_apis,
-            auth_service,
+            user_module,
         )
     }
 
+    pub fn with_standard_modules_and_seed_users(
+        runtime_configs: Vec<GatewayRuntimeConfig>,
+        seed_users: Vec<InMemoryUserConfig>,
+    ) -> Result<Self, String> {
+        let user_module = OfficialUserModule::from_config(None, seed_users)?;
+        Self::with_standard_modules(runtime_configs, user_module)
+    }
+
     pub fn from_local_config(config: LocalGatewayConfig) -> Result<Self, String> {
-        let auth_service = Arc::new(InMemoryAuthService::from_user_configs(config.auth_users));
+        let user_module =
+            OfficialUserModule::from_config(config.official_users.clone(), config.auth_users)?;
         let mut runtimes: Vec<Arc<dyn ModuleRuntime>> = vec![];
         let mut app_apis: Vec<Arc<dyn AppApiHandler>> = vec![];
 
@@ -104,7 +115,7 @@ impl LocalGatewayApp {
             app_apis.push(module);
         }
 
-        if runtimes.is_empty() {
+        if runtimes.is_empty() && !user_module.is_enabled() {
             return Err("local gateway config must enable at least one module runtime".into());
         }
 
@@ -112,7 +123,7 @@ impl LocalGatewayApp {
             config.runtimes,
             RuntimeRegistry::new(runtimes),
             app_apis,
-            auth_service,
+            user_module,
         )
     }
 
@@ -145,7 +156,7 @@ impl LocalGatewayApp {
         request: GatewayRequest,
         bearer_token: Option<&str>,
     ) -> Result<Value, AppError> {
-        let context = self.resolve_execution(&request, bearer_token)?;
+        let context = self.resolve_execution_with_bearer(&request, bearer_token)?;
         self.modules.execute(&context).map_err(AppError::from)
     }
 
@@ -154,7 +165,7 @@ impl LocalGatewayApp {
         request: GatewayRequest,
         bearer_token: Option<&str>,
     ) -> Result<Value, AppError> {
-        let context = self.resolve_execution(&request, bearer_token)?;
+        let context = self.resolve_execution_with_bearer(&request, bearer_token)?;
         Ok(json!({
             "tenantId": context.auth.tenant_id,
             "policy": context.policy_name(),
@@ -226,8 +237,7 @@ impl LocalGatewayApp {
     }
 
     pub fn login(&self, app: &str, email: &str, password: &str) -> Result<Value, AppError> {
-        let session = self.auth_service.login(app, email, password)?;
-        Ok(session.to_public_json())
+        self.user_login(app, email, password)
     }
 
     pub fn register(
@@ -237,15 +247,34 @@ impl LocalGatewayApp {
         password: &str,
         display_name: &str,
     ) -> Result<Value, AppError> {
-        let session = self
-            .auth_service
-            .register(app, email, password, display_name)?;
-        Ok(session.to_public_json())
+        self.user_register(app, email, password, display_name)
     }
 
     pub fn me(&self, bearer_token: &str) -> Result<Value, AppError> {
-        let session = self.auth_service.session_from_bearer(bearer_token)?;
-        Ok(session.to_public_json())
+        self.user_me(bearer_token)
+    }
+
+    pub fn user_login(&self, app: &str, email: &str, password: &str) -> Result<Value, AppError> {
+        self.user_module.login(app, email, password)
+    }
+
+    pub fn user_register(
+        &self,
+        app: &str,
+        email: &str,
+        password: &str,
+        display_name: &str,
+    ) -> Result<Value, AppError> {
+        self.user_module
+            .register(app, email, password, display_name)
+    }
+
+    pub fn user_me(&self, bearer_token: &str) -> Result<Value, AppError> {
+        self.user_module.me(bearer_token)
+    }
+
+    pub fn user_logout(&self, bearer_token: &str) -> Result<Value, AppError> {
+        self.user_module.logout(bearer_token)
     }
 
     pub fn handle_app_api(
@@ -256,7 +285,7 @@ impl LocalGatewayApp {
         body: Option<Value>,
     ) -> Result<Option<Value>, AppError> {
         let session = match bearer_token {
-            Some(token) => Some(self.auth_service.session_from_bearer(token)?),
+            Some(token) => Some(self.user_module.session_from_bearer(token)?),
             None => None,
         };
         let Some(handler) = self
@@ -283,8 +312,20 @@ impl LocalGatewayApp {
         bearer_token: Option<&str>,
     ) -> Result<Option<Ros2Subscription>, AppError> {
         let token = bearer_token.ok_or_else(|| AppError::unauthorized("missing bearer token"))?;
-        let session = self.auth_service.session_from_bearer(token)?;
+        let session = self.user_module.session_from_bearer(token)?;
         self.find_ros2_stream(path, &session)
+    }
+
+    pub fn open_iot_stream(
+        &self,
+        path: &str,
+        bearer_token: Option<&str>,
+    ) -> Result<Option<IotSubscription>, AppError> {
+        let session = match bearer_token {
+            Some(token) => Some(self.user_module.session_from_bearer(token)?),
+            None => None,
+        };
+        self.find_iot_stream(path, session.as_ref())
     }
 
     fn resolve_execution(
@@ -292,21 +333,37 @@ impl LocalGatewayApp {
         request: &GatewayRequest,
         bearer_token: Option<&str>,
     ) -> Result<ExecutionContext, AppError> {
-        let mut last_error: Option<GatewayError> = None;
         let session = match bearer_token {
-            Some(token) => Some(self.auth_service.session_from_bearer(token)?),
+            Some(token) => Some(self.user_module.session_from_bearer(token)?),
             None => None,
         };
+        self.resolve_execution_with_session(request, session.as_ref())
+    }
 
+    fn resolve_execution_with_bearer(
+        &self,
+        request: &GatewayRequest,
+        bearer_token: Option<&str>,
+    ) -> Result<ExecutionContext, AppError> {
+        let token = bearer_token.ok_or_else(|| AppError::unauthorized("missing bearer token"))?;
+        let session = self.user_module.session_from_bearer(token)?;
+        self.resolve_execution_with_session(request, Some(&session))
+    }
+
+    fn resolve_execution_with_session(
+        &self,
+        request: &GatewayRequest,
+        session: Option<&AuthSession>,
+    ) -> Result<ExecutionContext, AppError> {
+        let mut last_error: Option<GatewayError> = None;
         for runtime in &self.gateways {
-            if let Some(session) = &session {
+            if let Some(session) = session {
                 if session.user.app != runtime.name {
                     continue;
                 }
             }
 
             let auth = session
-                .as_ref()
                 .map(|session| session.user.auth_context())
                 .unwrap_or_else(|| runtime.auth.clone());
 
@@ -359,6 +416,23 @@ impl LocalGatewayApp {
                 continue;
             };
             if let Some(subscription) = ros2.open_message_stream(session, path)? {
+                return Ok(Some(subscription));
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn find_iot_stream(
+        &self,
+        path: &str,
+        session: Option<&AuthSession>,
+    ) -> Result<Option<IotSubscription>, AppError> {
+        for handler in &self.app_apis {
+            let Some(iot) = handler.as_any().downcast_ref::<IotModule>() else {
+                continue;
+            };
+            if let Some(subscription) = iot.open_command_stream(session, path)? {
                 return Ok(Some(subscription));
             }
         }

@@ -53,3 +53,15 @@ services:
       - ros2-backend
     expose:
       - "80"
+
+  user-module-demo:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        APP_DIR: apps/examples/user-module-demo
+        VITE_BLADB_URL: /api
+    depends_on:
+      - gateway
+    expose:
+      - "80"

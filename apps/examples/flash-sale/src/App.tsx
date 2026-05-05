@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { type GatewaySessionState, useGatewaySession, useLiveValue, useMutation } from "@bladb/react";
-import { flashSaleApi, flashSaleAuth, type FlashSaleSession, type QueueTicket } from "./bladb";
+import { db, flashSaleApi, type FlashSaleSession, type QueueTicket } from "./bladb";
 
 export default function App() {
-  const auth = useGatewaySession<FlashSaleSession>(flashSaleAuth);
+  const auth = useGatewaySession<FlashSaleSession>(db.user);
 
   if (!auth.ready && !auth.session) {
     return (

@@ -22,6 +22,11 @@ Build Bladb as an optimal-first platform:
 8. If a command may require administrator privileges, elevated permissions, system-wide installation, firewall changes, or machine-level configuration, stop and tell the user before running it.
 9. Do not keep retrying privileged or environment-mutating commands silently. Explain why elevated access is needed and what the command will change first.
 10. When the user gives a direct execution instruction such as "continue", "start", "do it", or a concrete implementation request, execute it without re-asking whether to proceed unless the decision has newly introduced hidden risk, destructive impact, or mutually exclusive tradeoffs that were not already accepted.
+11. For multi-step work that spans multiple layers, services, or files, create and maintain an explicit execution plan instead of carrying the sequence only implicitly.
+12. Before starting substantial implementation work, present the execution plan in enough detail that the user can see the real phases, not just a one-line intent summary.
+13. Do not stop after a short planning reply waiting for another nudge when the user has already asked for execution; continue from planning into implementation unless blocked by a real risk or missing requirement.
+14. If meaningful work remains after one batch, update the plan, break the remainder into concrete next steps, and keep executing instead of ending on a vague promise to continue later.
+15. Avoid terse, low-information progress replies for non-trivial tasks. Progress updates should name the current phase, what was learned, and what happens next.
 
 ## Self-Learning Workflow
 
@@ -39,6 +44,9 @@ Agents must continuously learn from implementation work and feed those learnings
 2. If a design decision changes the preferred project direction, record it.
 3. If a workaround is required, mark whether it is temporary or strategic.
 4. If a local environment problem blocks verification, distinguish clearly between code issues and machine/toolchain issues before trying further fixes.
+5. If the task is non-trivial or cross-layer, keep a visible plan updated as steps complete or change.
+6. If a user explicitly asks for "plan first", write or update the plan before deeper implementation and keep that plan synchronized with actual progress.
+7. When work is only partially complete, identify the remaining items explicitly and queue the next execution batch instead of leaving the tail implicit.
 
 ### After work
 
@@ -105,6 +113,20 @@ For core crates and protocols:
 2. implement the minimum change to make it pass
 3. refactor only after green
 4. keep real example configs as test fixtures whenever possible
+
+## Debugging Expectations
+
+When debugging, the default goal is to shrink the search space until the failing boundary is obvious.
+
+1. start by identifying the smallest known-good boundary and the smallest known-bad boundary
+2. prefer experiments that eliminate whole classes of causes instead of tweaks that only "might help"
+3. add targeted logs, assertions, probes, or temporary tests at layer boundaries to learn which side is wrong
+4. after each experiment, restate what has been ruled out, what remains possible, and the next narrower slice to inspect
+5. compare failing behavior against a nearby working path in the same codebase whenever possible
+6. do not stack speculative fixes; if the problem scope is not getting smaller, stop changing code and gather better evidence
+7. when proposing a fix, explain which boundary was proven to fail and why the change addresses that exact point
+
+Agents should optimize for answers like "the issue is somewhere in request parsing, not execution" and then "the issue is in SQL verb classification, not policy matching" until the root cause is isolated.
 
 ## Current Strategic Direction
 

@@ -59,9 +59,33 @@ The example also exposes an app-level command history API through the same gatew
 ```txt
 POST /apps/iot-realtime/commands
 GET /apps/iot-realtime/commands
+GET /apps/iot-realtime/commands/:deviceId/stream
 ```
 
 That route is served by the IoT module itself, not by a special-case gateway branch.
+
+## Browser verification
+
+The current browser flow is meant to make MQTT effects visible without exposing raw broker access in the frontend.
+
+1. Open the IoT app.
+2. Login with `operator@iot.demo` / `demo123`.
+3. Pick `device-001`.
+4. Click `Reboot device`.
+5. Confirm the page moves the MQTT stream state to `subscribed` and updates:
+   - `Last MQTT action`
+   - `Last MQTT topic`
+   - `Delivered at`
+
+The frontend reads that event through the app-owned stream route:
+
+```ts
+await iotApi.commandEvents("device-001", {
+  onMessage(event) {
+    console.log(event.topic, event.action);
+  }
+});
+```
 
 ## Ingress and background processing
 

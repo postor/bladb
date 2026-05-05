@@ -59,6 +59,9 @@ function publishStreamEvent(topicName, message) {
     return;
   }
 
+  console.log(
+    `stream.lifecycle source=ros2-backend module=ros2 phase=first-event mode=backend topic=${topicName} subscribers=${subscribers.size}`
+  );
   const frame = `event: ros2-message\ndata: ${JSON.stringify(message)}\n\n`;
   for (const res of [...subscribers]) {
     try {
@@ -206,6 +209,7 @@ const server = http.createServer(async (req, res) => {
       connection: "keep-alive"
     });
     res.write(": connected\n\n");
+    console.log(`stream.lifecycle source=ros2-backend module=ros2 phase=open mode=backend topic=${topicName}`);
 
     const subscribers = streamSubscribers.get(topicName) ?? new Set();
     subscribers.add(res);
@@ -217,6 +221,7 @@ const server = http.createServer(async (req, res) => {
       if (current && current.size === 0) {
         streamSubscribers.delete(topicName);
       }
+      console.log(`stream.lifecycle source=ros2-backend module=ros2 phase=close mode=backend topic=${topicName}`);
     });
     return;
   }

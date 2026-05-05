@@ -2,12 +2,21 @@ import type {
   AuthCommands,
   BrowserAuthModule,
   BrowserSessionStore,
+  BrowserUserModule,
   GatewaySession,
   LoginInput,
-  RegisterInput
+  RegisterInput,
+  UserCommands
 } from "@bladb/client";
-import { createBrowserAuthModule as createManagedAuth } from "@bladb/client";
+import {
+  createBrowserAuthModule as createManagedAuth,
+  createBrowserUserModule as createManagedUser
+} from "@bladb/client";
 import { useEffect, useRef, useState } from "react";
+
+export interface QueryBehaviorOptions {
+  enabled?: boolean;
+}
 
 export interface QueryState<T> {
   data: T | null;
@@ -16,12 +25,22 @@ export interface QueryState<T> {
   refresh: () => Promise<void>;
 }
 
-export function useQuery<T>(runner: () => Promise<T>, deps: readonly unknown[] = []): QueryState<T> {
+export function useQuery<T>(
+  runner: () => Promise<T>,
+  deps: readonly unknown[] = [],
+  options: QueryBehaviorOptions = {}
+): QueryState<T> {
+  const enabled = options.enabled ?? true;
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<Error | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
 
   const refresh = async () => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -35,8 +54,13 @@ export function useQuery<T>(runner: () => Promise<T>, deps: readonly unknown[] =
   };
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
+
     void refresh();
-  }, deps);
+  }, [...deps, enabled]);
 
   return { data, error, loading, refresh };
 }
@@ -78,13 +102,25 @@ export function useMutation<TArgs extends readonly unknown[], TResult>(
 export function useLiveValue<T>(
   runner: () => Promise<T>,
   intervalMs: number,
-  deps: readonly unknown[] = []
+  deps: readonly unknown[] = [],
+  options: QueryBehaviorOptions = {}
 ): QueryState<T> {
   const timerRef = useRef<number | null>(null);
-  const query = useQuery(runner, deps);
+  const enabled = options.enabled ?? true;
+  const query = useQuery(runner, deps, options);
 
   useEffect(() => {
-    void query.refresh();
+    if (!enabled) {
+      if (timerRef.current !== null) {
+        window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      return;
+    }
+
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+    }
 
     timerRef.current = window.setInterval(() => {
       void query.refresh();
@@ -95,7 +131,7 @@ export function useLiveValue<T>(
         window.clearInterval(timerRef.current);
       }
     };
-  }, deps);
+  }, [...deps, enabled, intervalMs]);
 
   return query;
 }
@@ -111,6 +147,9 @@ export interface GatewaySessionState<TSession extends GatewaySession = GatewaySe
   logout: () => void;
 }
 
+export interface UserSessionState<TSession extends GatewaySession = GatewaySession>
+  extends GatewaySessionState<TSession> {}
+
 function resolveBrowserAuthModule<TSession extends GatewaySession>(
   auth: AuthCommands | BrowserAuthModule<TSession>,
   store?: BrowserSessionStore<TSession>
@@ -120,6 +159,17 @@ function resolveBrowserAuthModule<TSession extends GatewaySession>(
   }
 
   return createManagedAuth(auth, store);
+}
+
+function resolveBrowserUserModule<TSession extends GatewaySession>(
+  user: UserCommands | BrowserUserModule<TSession>,
+  store?: BrowserSessionStore<TSession>
+): BrowserUserModule<TSession> {
+  if (store === undefined) {
+    return user as BrowserUserModule<TSession>;
+  }
+
+  return createManagedUser(user, store);
 }
 
 export function useGatewaySession<TSession extends GatewaySession>(
@@ -227,4 +277,19 @@ export function useGatewaySession<TSession extends GatewaySession>(
     refresh,
     logout
   };
+}
+
+export function useUserSession<TSession extends GatewaySession>(
+  user: BrowserUserModule<TSession>
+): UserSessionState<TSession>;
+export function useUserSession<TSession extends GatewaySession>(
+  user: UserCommands,
+  store: BrowserSessionStore<TSession>
+): UserSessionState<TSession>;
+export function useUserSession<TSession extends GatewaySession>(
+  user: UserCommands | BrowserUserModule<TSession>,
+  store?: BrowserSessionStore<TSession>
+): UserSessionState<TSession> {
+  const browserUser = resolveBrowserUserModule(user, store);
+  return useGatewaySession(browserUser);
 }
