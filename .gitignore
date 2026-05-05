@@ -3,9 +3,12 @@ dist/
 .vite/
 coverage/
 target/
+target-*/
 .run-logs/
 .DS_Store
 .env
 .env.*
 tmp-dev-examples.out.log
 tmp-dev-examples.err.log
+cargo-msvc-debug.log
+tmp-ros2-*
