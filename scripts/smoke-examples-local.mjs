@@ -47,6 +47,10 @@ const checks = [
     run: () => assertBlogPublicFlow(),
   },
   {
+    label: "blog anonymous identity flow",
+    run: () => assertAnonymousBlogFlow(),
+  },
+  {
     label: "flash-sale auth",
     run: () => assertAuthFlow("flash-sale", "buyer@flash-sale.demo", "demo123"),
   },
@@ -579,6 +583,43 @@ async function assertBlogPublicFlow() {
   console.log("blog public ui: ok");
 }
 
+async function assertAnonymousBlogFlow() {
+  const publicListResponse = await fetch(`${gatewayUrl}/apps/blog/posts`);
+  const publicListPayload = await publicListResponse.json();
+  if (!publicListResponse.ok || !Array.isArray(publicListPayload.data) || publicListPayload.data.length < 1) {
+    throw new Error(`anonymous blog public list failed: ${JSON.stringify(publicListPayload)}`);
+  }
+
+  const sessionCookie = extractSessionCookie(publicListResponse, "anonymous blog public list");
+  const firstIdentity = await readAnonymousMe("blog", sessionCookie);
+
+  const repeatedPublicListResponse = await fetch(`${gatewayUrl}/apps/blog/posts`, {
+    headers: {
+      cookie: sessionCookie,
+    },
+  });
+  const repeatedPublicListPayload = await repeatedPublicListResponse.json();
+  if (
+    !repeatedPublicListResponse.ok ||
+    !Array.isArray(repeatedPublicListPayload.data) ||
+    repeatedPublicListPayload.data.length < 1
+  ) {
+    throw new Error(`anonymous blog repeated public list failed: ${JSON.stringify(repeatedPublicListPayload)}`);
+  }
+
+  const secondIdentity = await readAnonymousMe("blog", sessionCookie);
+  if (firstIdentity.user.uid !== secondIdentity.user.uid) {
+    throw new Error(
+      `anonymous blog identity did not persist across public reads: ${JSON.stringify({
+        firstUid: firstIdentity.user.uid,
+        secondUid: secondIdentity.user.uid,
+      })}`,
+    );
+  }
+
+  console.log("blog anonymous identity flow: ok");
+}
+
 async function assertPortalFlow() {
   const response = await fetch(portalUrl);
   const html = await response.text();
@@ -645,6 +686,18 @@ function extractSessionCookie(response, label) {
 }
 
 async function assertAnonymousMe(app, sessionCookie, expectedUid = undefined) {
+  const payload = await readAnonymousMe(app, sessionCookie);
+  if (expectedUid && payload.user.uid !== expectedUid) {
+    throw new Error(
+      `anonymous ${app} me returned unexpected uid: ${JSON.stringify({
+        expectedUid,
+        actualUid: payload.user.uid,
+      })}`,
+    );
+  }
+}
+
+async function readAnonymousMe(app, sessionCookie) {
   const meResponse = await fetch(`${gatewayUrl}/users/me?app=${app}`, {
     headers: {
       cookie: sessionCookie,
@@ -654,11 +707,12 @@ async function assertAnonymousMe(app, sessionCookie, expectedUid = undefined) {
   if (
     !meResponse.ok ||
     mePayload.data?.user?.app !== app ||
-    mePayload.data?.anonymous !== true ||
-    (expectedUid && mePayload.data?.user?.uid !== expectedUid)
+    mePayload.data?.anonymous !== true
   ) {
     throw new Error(`anonymous ${app} me failed: ${JSON.stringify(mePayload)}`);
   }
+
+  return mePayload.data;
 }
 
 async function readFirstSseEvent(url, expectedEvent, extraHeaders = {}) {

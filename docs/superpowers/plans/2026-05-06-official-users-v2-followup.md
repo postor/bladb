@@ -20,27 +20,28 @@
 
 ## Phase 1: Developer-Facing Contract Clarity
 
-- [ ] Add a single README section that answers:
+- [x] Add a single README section that answers:
   - where `modules.official.users` lives
   - how to choose `jwt.secret` vs `publicKeyFile/privateKeyFile`
   - how to choose `storage.engine=mysql` vs `mongodb`
   - when mailer config is required
   - how frontend developers should wire `db.user.login/register/me/logout`
-- [ ] Add a concrete config cookbook snippet in the config spec for:
+- [x] Add a concrete config cookbook snippet in the config spec for:
   - HS256 + MySQL + SMTP
   - RS256 + MongoDB + SMTP
-- [ ] Keep the status note explicit that validation/config contract is live today, while full adapter-backed runtime execution is still a follow-up lane.
+- [x] Keep the status note explicit that validation/config contract is live today, while full adapter-backed runtime execution is still a follow-up lane.
 
 ## Phase 2: Browser Verification As A Repo Primitive
 
-- [ ] Promote the ad hoc browser-visible checks into a committed script or test entrypoint.
-- [ ] Cover:
+- [x] Promote the ad hoc browser-visible checks into a committed script or test entrypoint.
+- [x] Cover:
   - portal loads and teaches suite order
   - blog public read + editor publish
   - iot anonymous action feedback
   - ros2 anonymous publish/subscribe feedback
   - user-module-demo login -> refresh -> logout
-- [ ] Document where screenshots or browser artifacts should live and how developers rerun the flow locally.
+- [x] Document where screenshots or browser artifacts should live and how developers rerun the flow locally.
+- [ ] Extend smoke coverage so the mixed-auth `blog` example also proves anonymous cookie-backed identity and `db.user.me()` restoration, not just public reads plus editor writes.
 
 ## Phase 3: Official Users Runtime Assembly
 
