@@ -18,6 +18,7 @@ let shuttingDown = false;
 const isWindows = process.platform === "win32";
 const cargoBin = isWindows ? "C:/Users/posto/.cargo/bin/cargo.exe" : "cargo";
 const pnpmBin = isWindows ? "pnpm.cmd" : "pnpm";
+const nodeBin = isWindows ? "node.exe" : "node";
 const gatewayExe = path.join(
   rootDir,
   "target",
@@ -42,6 +43,22 @@ try {
   await runBootstrap(cargoBin, ["build", "-p", "bladb-gateway"], "build:gateway");
   await access(gatewayExe);
 
+  startProcess(
+    nodeBin,
+    [
+      "packages/server/src/cli.mjs",
+      "--app",
+      "user-module-demo",
+      "--modules-dir",
+      "apps/server-modules",
+      "--host",
+      EXAMPLE_STACK_HOST,
+      "--port",
+      "8790",
+    ],
+    "server-modules",
+    sharedEnv,
+  );
   startProcess(gatewayExe, ["serve", `${EXAMPLE_STACK_HOST}:${ports.gateway}`], "gateway");
   startProcess(
     pnpmBin,
@@ -154,6 +171,7 @@ try {
   await writeExampleStackState({ ports, source: "local-dev" });
 
   console.log("Bladb example stack is starting:");
+  console.log(`- server-modules: http://${EXAMPLE_STACK_HOST}:8790`);
   console.log(`- gateway: ${urls.gatewayUrl}/health`);
   console.log(`- examples-portal: ${urls.portalUrl}`);
   console.log(`- flash-sale: ${urls.flashSaleUrl}`);

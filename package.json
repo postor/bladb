@@ -14,6 +14,7 @@
     "dev:ros2": "pnpm --dir apps/examples/ros2-bridge dev",
     "dev:user-module-demo": "pnpm --dir apps/examples/user-module-demo dev",
     "test:client": "node --experimental-strip-types --test packages/client/test/**/*.test.ts",
+    "test:server": "node --experimental-strip-types --test packages/server/test/**/*.test.ts",
     "test:scripts": "node --test scripts/test/**/*.test.mjs",
     "build:examples": "pnpm --dir apps/examples/examples-portal build && pnpm --dir apps/examples/flash-sale build && pnpm --dir apps/examples/blog build && pnpm --dir apps/examples/iot-realtime build && pnpm --dir apps/examples/ros2-bridge build && pnpm --dir apps/examples/user-module-demo build",
     "smoke:examples": "node scripts/smoke-examples.mjs",

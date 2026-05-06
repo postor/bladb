@@ -297,6 +297,59 @@ impl AuthUser {
 }
 
 impl AuthSession {
+    pub(crate) fn from_public_json(value: &Value) -> Result<Self, AppError> {
+        let token = value
+            .get("token")
+            .and_then(Value::as_str)
+            .ok_or_else(|| AppError::internal("launcher user response missing token"))?;
+        let user = value
+            .get("user")
+            .and_then(Value::as_object)
+            .ok_or_else(|| AppError::internal("launcher user response missing user"))?;
+
+        let roles = user
+            .get("roles")
+            .and_then(Value::as_array)
+            .ok_or_else(|| AppError::internal("launcher user response missing user.roles"))?
+            .iter()
+            .map(|role| {
+                role.as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| AppError::internal("launcher user role must be a string"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let kind = match value
+            .get("sessionKind")
+            .and_then(Value::as_str)
+            .unwrap_or("authenticated")
+        {
+            "anonymous" => AuthSessionKind::Anonymous,
+            _ => AuthSessionKind::Authenticated,
+        };
+
+        Ok(Self {
+            token: token.to_string(),
+            user: AuthUser {
+                app: required_public_string(user, "app")?,
+                uid: required_public_string(user, "uid")?,
+                tenant_id: required_public_string(user, "tenantId")?,
+                email: required_public_string(user, "email")?,
+                password: String::new(),
+                display_name: required_public_string(user, "displayName")?,
+                roles,
+                anonymous: user
+                    .get("anonymous")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            },
+            kind,
+            issued_at: value.get("issuedAt").and_then(Value::as_u64).unwrap_or(0),
+            last_seen_at: value.get("lastSeenAt").and_then(Value::as_u64).unwrap_or(0),
+            expires_at: value.get("expiresAt").and_then(Value::as_u64).unwrap_or(0),
+        })
+    }
+
     pub(crate) fn to_public_json(&self) -> Value {
         json!({
             "token": self.token,
@@ -320,6 +373,17 @@ impl AuthSession {
     pub(crate) fn cookie_max_age_seconds(&self) -> u64 {
         self.expires_at.saturating_sub(now_epoch_seconds())
     }
+}
+
+fn required_public_string(
+    object: &serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<String, AppError> {
+    object
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| AppError::internal(format!("launcher user response missing user.{field}")))
 }
 
 impl AuthSessionKind {

@@ -175,3 +175,11 @@
 - Why: This keeps the future live transport loop thin, makes unit tests work without a broker, and leaves one clear seam for swapping in real NATS / JetStream drivers.
 - Apply when: Implementing request/reply serving, worker consumer polling, retries, and broker integration.
 - Avoid when: The code path is purely in-process and never needs a broker boundary.
+
+## 2026-05-06 - Server modules should separate request scope from transport delivery
+
+- Context: The new `@bladb/server` package needs to let module authors write `db.user.me()` style code without exposing a `ctx` parameter, while still supporting NATS-backed delivery and future transport changes.
+- Decision: Keep request-scoped `db` binding in one launcher/runtime layer and keep transport subscription behind a small interface that can be tested with an in-memory transport.
+- Why: This preserves the desired developer ergonomics, keeps module code transport-agnostic, and lets the team validate module loading and invocation without depending on a live broker in every test.
+- Apply when: Adding server-side module hosts, NATS adapters, worker launchers, or other request-scoped backend authoring surfaces.
+- Avoid when: The code is purely synchronous utility logic with no request scope or transport boundary.

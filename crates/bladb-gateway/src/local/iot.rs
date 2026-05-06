@@ -626,8 +626,13 @@ mod tests {
     #[test]
     fn iot_module_tracks_anonymous_command_history_per_identity() {
         let module = IotModule::new();
-        let first_session = anonymous_session();
-        let second_session = anonymous_session();
+        let auth = auth_service();
+        let first_session = auth
+            .ensure_anonymous_session("iot-realtime")
+            .expect("first anonymous iot session");
+        let second_session = auth
+            .ensure_anonymous_session("iot-realtime")
+            .expect("second anonymous iot session");
 
         module
             .handle(AppApiRequest {

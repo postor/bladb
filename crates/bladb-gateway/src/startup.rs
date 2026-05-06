@@ -43,9 +43,16 @@ struct UnifiedConfigFile {
     #[serde(default)]
     runtime: UnifiedRuntimeSection,
     #[serde(default)]
-    modules: OfficialModulesConfig,
+    modules: UnifiedModulesSection,
     #[serde(default)]
     gateway: Option<LocalGatewayFileConfig>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UnifiedModulesSection {
+    #[serde(default)]
+    official: OfficialModulesConfig,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -72,7 +79,7 @@ pub fn load_gateway_startup(
             let mut gateway = parsed.gateway.ok_or_else(|| {
                 GatewayStartupError::MissingGatewaySection(config_path.display().to_string())
             })?;
-            gateway.official = parsed.modules;
+            gateway.official = parsed.modules.official;
             let base_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
             let app =
                 LocalGatewayConfig::from_file_config(gateway, base_dir).map_err(|reason| {
@@ -237,9 +244,9 @@ mod tests {
         match startup {
             GatewayStartup::Standalone { config_path, app } => {
                 assert!(config_path.ends_with("bladb.yml"));
-                assert_eq!(app.runtimes.len(), 3);
+                assert_eq!(app.runtimes.len(), 4);
                 assert_eq!(app.runtimes[0].name, "flash-sale");
-                assert_eq!(app.auth_users.len(), 4);
+                assert_eq!(app.auth_users.len(), 5);
                 assert!(app.official_users.is_some());
                 assert_eq!(
                     app.official_users

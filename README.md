@@ -143,6 +143,7 @@ bladb/
 ### JS / TS packages
 
 - `@bladb/client`: native-looking client API for SQL / Mongo / Redis
+- `@bladb/server`: launcher-driven server module host for JS / TS backend modules
 - `@bladb/react`: hooks for query, mutation, and live updates
 - `@bladb/vue`: planned composables package
 
@@ -866,9 +867,40 @@ This first pass includes:
 - a small `@bladb/react` package
 - `bladb-core` with tested protocol, policy, event, and worker models
 - `bladb-gateway` with authorization, request preparation, topology routing, config-driven local serving, and a dry-run CLI
+- early `@bladb/server` launcher scaffolding for file-based backend modules with request-scoped `db`
 - example app skeletons for flash sale and IoT realtime
 - sample policy YAML files that demonstrate `UID` / `TENANT_ID` usage
 - scenario architecture notes and worker design drafts for both example apps
+
+## Server modules
+
+Bladb is starting to grow a server-side module authoring model alongside the client SDK.
+
+The target experience is:
+
+```ts
+// app/modules/user.ts
+import { db } from "@bladb/server";
+
+export async function me() {
+  return db.user.me();
+}
+```
+
+And a launcher process:
+
+```ts
+import { createServerModuleLauncher } from "@bladb/server";
+```
+
+The launcher scans a module directory, discovers named exports such as `login` and `logout`, and maps them to app-qualified subjects like `bladb.app.blog.module.user.login`.
+
+Current status:
+
+- single-file module discovery is implemented
+- named export registry and request-scoped `db` are implemented
+- in-memory transport-backed launcher tests are passing
+- real NATS transport wiring and Rust gateway integration are the next follow-up batch
 
 ## Next milestones
 

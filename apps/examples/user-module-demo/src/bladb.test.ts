@@ -109,8 +109,8 @@ test("user module demo module persists a registered session and refreshes curren
   assert.deepEqual(refreshed, session);
   assert.equal(userModule.user.getToken(), session.token);
   assert.deepEqual(userModule.sessionStore.read(), session);
-  assert.equal(requests[0]?.url.endsWith("/users/register"), true);
-  assert.equal(requests[1]?.url.endsWith("/users/me"), true);
+  assert.equal(new URL(requests[0]?.url ?? "http://localhost/").pathname, "/users/register");
+  assert.equal(new URL(requests[1]?.url ?? "http://localhost/").pathname, "/users/me");
   assert.equal(requests[1]?.headers.get("authorization"), `Bearer ${session.token}`);
 
   userModule.user.logout();

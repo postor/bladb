@@ -1,0 +1,9 @@
+=http://127.0.0.1:8787 : The term '=http://127.0.0.1:8787' is not recognized as the name of a cmdlet, function, script 
+file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct 
+and try again.
+At line:1 char:32
++ Set-Location 'D:/study/bladb'; ='http://127.0.0.1:8787'; pnpm --dir a ...
++                                ~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (=http://127.0.0.1:8787:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 

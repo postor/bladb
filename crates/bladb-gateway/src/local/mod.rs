@@ -226,6 +226,7 @@ mod tests {
             enabled: true,
             session: super::config::OfficialUsersSessionConfig {
                 transport: Some("gateway-auth".into()),
+                launcher_url: None,
             },
             jwt: super::config::OfficialUsersJwtConfig {
                 algorithm: Some("HS256".into()),
@@ -410,7 +411,7 @@ mod tests {
         let app = LocalGatewayApp::from_local_config(config).expect("build app from config");
 
         let topology = app.topology_snapshot();
-        assert_eq!(topology.as_array().map(Vec::len), Some(3));
+        assert_eq!(topology.as_array().map(Vec::len), Some(4));
     }
 
     #[test]
@@ -426,7 +427,7 @@ mod tests {
         };
 
         let topology = app.topology_snapshot();
-        assert_eq!(topology.as_array().map(Vec::len), Some(3));
+        assert_eq!(topology.as_array().map(Vec::len), Some(4));
     }
 
     #[test]

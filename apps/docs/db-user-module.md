@@ -46,6 +46,13 @@ Important honesty note:
 - `jwt`, `password`, `storage`, and `mailer` fields are already modeled and validated
 - full adapter-backed execution for MySQL / MongoDB / SMTP is still follow-up work, not fully shipped runtime behavior
 
+Local launcher note:
+
+- the repo is now moving toward a launcher-backed replacement path for the official user runtime
+- local development can use `session.transport: launcher-http` plus `session.launcherUrl`
+- this keeps local debugging lighter than requiring NATS everywhere while still matching the future external-module execution model
+- gRPC is still possible later, but the current repo transport path is HTTP/JSON first for local iteration
+
 ## Server config cookbook
 
 ### Option A: HS256 + MySQL + SMTP

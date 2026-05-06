@@ -92,9 +92,24 @@ impl OfficialUserModule {
             });
 
         let assembly = OfficialUserAssembly::from_config(config.as_ref(), seed_users.len());
-        let provider = InMemoryUserModuleProvider::new(features, seed_users);
+        let provider: Arc<dyn UserModuleProvider> = match config
+            .as_ref()
+            .and_then(|configured| configured.session.transport.as_deref())
+        {
+            Some("launcher-http") => Arc::new(HttpUserModuleProvider::from_config(
+                config
+                    .as_ref()
+                    .and_then(|configured| configured.session.launcher_url.clone())
+                    .ok_or_else(|| {
+                        "modules.official.users.session.launcherUrl is required when session.transport=`launcher-http`"
+                            .to_string()
+                    })?,
+                features.clone(),
+            )),
+            _ => Arc::new(InMemoryUserModuleProvider::new(features, seed_users)),
+        };
         Ok(Self {
-            provider: Arc::new(provider),
+            provider,
             enabled,
             assembly,
         })
@@ -254,6 +269,74 @@ struct InMemoryUserModuleProvider {
     auth: InMemoryAuthService,
 }
 
+struct HttpUserModuleProvider {
+    base_url: String,
+    features: OfficialUsersFeaturesConfig,
+}
+
+impl HttpUserModuleProvider {
+    fn from_config(base_url: String, features: OfficialUsersFeaturesConfig) -> Self {
+        Self {
+            base_url: base_url.trim_end_matches('/').to_string(),
+            features,
+        }
+    }
+
+    fn ensure_login_enabled(&self) -> Result<(), AppError> {
+        if self.features.login {
+            return Ok(());
+        }
+
+        Err(AppError::not_found(
+            "modules.official.users.features.login is disabled",
+        ))
+    }
+
+    fn ensure_register_enabled(&self) -> Result<(), AppError> {
+        if self.features.register {
+            return Ok(());
+        }
+
+        Err(AppError::not_found(
+            "modules.official.users.features.register is disabled",
+        ))
+    }
+
+    fn invoke(&self, method: &str, payload: Value) -> Result<Value, AppError> {
+        let url = format!("{}/invoke/{}", self.base_url, subject_for_user_method(method));
+        let response = ureq::post(&url)
+            .set("content-type", "application/json")
+            .send_json(payload)
+            .map_err(|error| AppError::internal(format!("http user launcher request failed: {error}")))?;
+
+        let status = response.status();
+        let parsed: Value = response
+            .into_json()
+            .map_err(|error| AppError::internal(format!("failed to parse launcher response: {error}")))?;
+
+        if status >= 400 {
+            return Err(AppError::internal(format!(
+                "http user launcher returned status {status}"
+            )));
+        }
+
+        match parsed.get("ok").and_then(Value::as_bool) {
+            Some(true) => parsed
+                .get("data")
+                .cloned()
+                .ok_or_else(|| AppError::internal("launcher response missing data field")),
+            Some(false) => Err(AppError::unauthorized(
+                parsed
+                    .get("error")
+                    .and_then(|error| error.get("message"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("launcher user call failed"),
+            )),
+            None => Ok(parsed),
+        }
+    }
+}
+
 impl InMemoryUserModuleProvider {
     fn new(features: OfficialUsersFeaturesConfig, seed_users: Vec<InMemoryUserConfig>) -> Self {
         Self {
@@ -317,12 +400,116 @@ impl UserModuleProvider for InMemoryUserModuleProvider {
     }
 }
 
+impl UserModuleProvider for HttpUserModuleProvider {
+    fn login(&self, app: &str, email: &str, password: &str) -> Result<AuthSession, AppError> {
+        self.ensure_login_enabled()?;
+        let value = self.invoke(
+            "login",
+            json!({
+                "app": app,
+                "module": "user",
+                "method": "login",
+                "input": {
+                    "app": app,
+                    "email": email,
+                    "password": password
+                },
+                "db": {}
+            }),
+        )?;
+        AuthSession::from_public_json(&value)
+    }
+
+    fn register(
+        &self,
+        app: &str,
+        email: &str,
+        password: &str,
+        display_name: &str,
+    ) -> Result<AuthSession, AppError> {
+        self.ensure_register_enabled()?;
+        let value = self.invoke(
+            "register",
+            json!({
+                "app": app,
+                "module": "user",
+                "method": "register",
+                "input": {
+                    "app": app,
+                    "email": email,
+                    "password": password,
+                    "displayName": display_name
+                },
+                "db": {}
+            }),
+        )?;
+        AuthSession::from_public_json(&value)
+    }
+
+    fn session_from_bearer(&self, bearer_token: &str) -> Result<AuthSession, AppError> {
+        let value = self.invoke(
+            "me",
+            json!({
+                "app": "user-module-demo",
+                "module": "user",
+                "method": "me",
+                "input": {},
+                "db": {
+                    "user": {
+                        "me": {
+                            "token": bearer_token
+                        }
+                    }
+                }
+            }),
+        )?;
+        AuthSession::from_public_json(&value)
+    }
+
+    fn session_from_cookie(&self, _app: &str, _cookie_token: &str) -> Result<AuthSession, AppError> {
+        Err(AppError::internal(
+            "launcher-http user provider does not yet support cookie session resolution",
+        ))
+    }
+
+    fn ensure_anonymous_session(&self, _app: &str) -> Result<AuthSession, AppError> {
+        Err(AppError::internal(
+            "launcher-http user provider does not yet support anonymous session issuance",
+        ))
+    }
+
+    fn logout_session(&self, session_token: &str) -> Result<(), AppError> {
+        self.invoke(
+            "logout",
+            json!({
+                "app": "user-module-demo",
+                "module": "user",
+                "method": "logout",
+                "input": {},
+                "db": {
+                    "user": {
+                        "logout": {
+                            "token": session_token
+                        }
+                    }
+                }
+            }),
+        )?;
+        Ok(())
+    }
+}
+
 fn normalized_option(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
 }
+
+fn subject_for_user_method(method: &str) -> String {
+    format!("bladb.app.user-module-demo.module.user.{method}")
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -349,6 +536,7 @@ mod tests {
             enabled: true,
             session: OfficialUsersSessionConfig {
                 transport: Some("gateway-auth".into()),
+                launcher_url: None,
             },
             jwt: OfficialUsersJwtConfig {
                 algorithm: Some("HS256".into()),

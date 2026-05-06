@@ -1,0 +1,7 @@
+[build]
+target = "x86_64-pc-windows-msvc"
+
+[env]
+CC = "cl"
+CXX = "cl"
+AR = "lib"

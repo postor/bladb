@@ -760,8 +760,12 @@ mod tests {
         }
     }
 
-    fn anonymous_session() -> AuthSession {
+    fn auth_service() -> InMemoryAuthService {
         InMemoryAuthService::from_user_configs(vec![seed_user()])
+    }
+
+    fn anonymous_session() -> AuthSession {
+        auth_service()
             .ensure_anonymous_session("flash-sale")
             .expect("anonymous flash-sale session")
     }
@@ -825,8 +829,13 @@ mod tests {
     #[test]
     fn queue_tickets_are_scoped_to_the_resolved_identity() {
         let module = FlashSaleModule::new();
-        let first_session = anonymous_session();
-        let second_session = anonymous_session();
+        let auth = auth_service();
+        let first_session = auth
+            .ensure_anonymous_session("flash-sale")
+            .expect("first anonymous session");
+        let second_session = auth
+            .ensure_anonymous_session("flash-sale")
+            .expect("second anonymous session");
         let ticket = module
             .handle(AppApiRequest {
                 method: "POST".into(),

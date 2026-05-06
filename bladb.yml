@@ -5,7 +5,8 @@ modules:
     users:
       enabled: true
       session:
-        transport: gateway-auth
+        transport: launcher-http
+        launcherUrl: http://127.0.0.1:8790
       jwt:
         algorithm: HS256
         secret: ${BLADB_JWT_SECRET}

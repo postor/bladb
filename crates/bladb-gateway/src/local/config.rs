@@ -63,6 +63,7 @@ pub struct OfficialUsersModuleConfig {
 #[serde(rename_all = "camelCase")]
 pub struct OfficialUsersSessionConfig {
     pub transport: Option<String>,
+    pub launcher_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,10 +155,25 @@ impl OfficialUsersModuleConfig {
 
 impl OfficialUsersSessionConfig {
     fn validate(&self) -> Result<(), String> {
-        required_non_empty(
+        let transport = required_non_empty(
             self.transport.as_deref(),
             "modules.official.users.session.transport",
         )?;
+
+        match transport {
+            "gateway-auth" => Ok(()),
+            "launcher-http" => {
+                required_non_empty(
+                    self.launcher_url.as_deref(),
+                    "modules.official.users.session.launcherUrl",
+                )?;
+                Ok(())
+            }
+            other => Err(format!(
+                "modules.official.users.session.transport must be `gateway-auth` or `launcher-http`, got `{other}`"
+            )),
+        }?;
+
         Ok(())
     }
 }
@@ -450,6 +466,7 @@ mod tests {
             enabled: true,
             session: OfficialUsersSessionConfig {
                 transport: Some("gateway-auth".into()),
+                launcher_url: None,
             },
             jwt: OfficialUsersJwtConfig {
                 algorithm: Some("HS256".into()),

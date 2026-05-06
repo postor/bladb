@@ -1,0 +1,15 @@
+{
+  "source": "docker-dev",
+  "projectName": "bladb-dev",
+  "ports": {
+    "gateway": 8787,
+    "ros2Backend": 8080,
+    "portal": 4172,
+    "flashSale": 4173,
+    "blog": 4174,
+    "iot": 4175,
+    "ros2": 4178,
+    "userModuleDemo": 4179
+  },
+  "updatedAt": "2026-05-06T01:46:03.037Z"
+}
