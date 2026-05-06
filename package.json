@@ -18,10 +18,12 @@
     "build:examples": "pnpm --dir apps/examples/examples-portal build && pnpm --dir apps/examples/flash-sale build && pnpm --dir apps/examples/blog build && pnpm --dir apps/examples/iot-realtime build && pnpm --dir apps/examples/ros2-bridge build && pnpm --dir apps/examples/user-module-demo build",
     "smoke:examples": "node scripts/smoke-examples.mjs",
     "smoke:examples:local": "node scripts/smoke-examples-local.mjs",
+    "verify:examples:browser": "node scripts/verify-examples-browser.mjs",
     "extract:examples": "node packages/client/src/cli.mjs apps/examples"
   },
   "devDependencies": {
     "jsdom": "^29.1.1",
+    "playwright-core": "^1.59.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "typescript": "^5.8.3"

@@ -712,6 +712,7 @@ These `/apps/*` endpoints are now module-owned application APIs, not hardcoded b
 
 - Start the full stack with `pnpm dev:examples`.
 - Run `pnpm smoke:examples:local` to verify anonymous example app flows, `db.user` auth and `/users/*` aliases, blog `mongo + user` behavior, and the first live stream event for both IoT and ROS2 realtime endpoints.
+- Run `pnpm verify:examples:browser` to drive the rendered portal/blog/iot/ros2/user-module-demo pages in a real browser and write screenshots to `.tmp/browser-checks`.
 - Run `node --experimental-strip-types --test packages/client/test/browser-module.test.ts` to verify the browser module client behavior, including `db.user` and SSE keepalive handling.
 
 ## Cross-module changes
