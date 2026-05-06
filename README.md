@@ -8,6 +8,7 @@ For the unified gateway configuration, start here:
 
 - Default config: [bladb.yml](/D:/study/bladb/bladb.yml)
 - Config spec: [apps/docs/bladb-config-spec.md](/D:/study/bladb/apps/docs/bladb-config-spec.md)
+- User module guide: [apps/docs/db-user-module.md](/D:/study/bladb/apps/docs/db-user-module.md)
 
 The official user module contract also lives in that config spec under `modules.official.users`. This is the long-term server contract behind the public `db.user` API.
 
@@ -489,6 +490,7 @@ The browser SDK also now includes small gateway helpers that the examples use di
 The React package also now includes:
 
 - `useGatewaySession(...)`
+- `useUserSession(...)`
 
 The example apps use that split intentionally:
 
@@ -537,6 +539,35 @@ await db.user.login({
 });
 db.user.logout();
 ```
+
+For new auth-focused screens, prefer `useUserSession(...)` with the browser-managed module user handle:
+
+```ts
+const flashSaleModule = createBrowserAppModule({
+  baseUrl: BLADB_URL,
+  appName: "flash-sale",
+  tokenKey: "bladb.flash-sale.token",
+  sessionKey: "bladb.flash-sale.session",
+  routes: {}
+});
+
+const session = useUserSession(flashSaleModule.user);
+await session.login({
+  app: "flash-sale",
+  email: "buyer@flash-sale.demo",
+  password: "demo123"
+});
+await session.refresh();
+session.logout();
+```
+
+The dedicated guide at [apps/docs/db-user-module.md](/D:/study/bladb/apps/docs/db-user-module.md) collects:
+
+- concrete `modules.official.users` config recipes
+- when to choose `jwt.secret` vs key files
+- when to choose MySQL vs MongoDB storage config
+- when SMTP config is required
+- which user-module fields are fully active today vs still contract-first
 
 ## Running The Example Stack
 

@@ -11,6 +11,7 @@ import {
 import { ExampleSuiteNav } from "../../shared/ExampleSuiteNav";
 
 type AuthMode = "login" | "register";
+type UserModuleSessionState = ReturnType<typeof useUserSession<UserModuleDemoSession>>;
 
 export default function App() {
   const sessionState = useUserSession<UserModuleDemoSession>(userDemoUser);
@@ -45,7 +46,7 @@ export default function App() {
 function Hero({
   sessionState
 }: {
-  sessionState: ReturnType<typeof useGatewaySession<UserModuleDemoSession>>;
+  sessionState: UserModuleSessionState;
 }) {
   const checklist = describeVerificationChecklist(sessionState.session);
 
@@ -127,7 +128,7 @@ await db.user.logout()`}</pre>
 function AuthSurface({
   sessionState
 }: {
-  sessionState: ReturnType<typeof useGatewaySession<UserModuleDemoSession>>;
+  sessionState: UserModuleSessionState;
 }) {
   const [mode, setMode] = useState<AuthMode>("login");
   const [error, setError] = useState<string | null>(null);
@@ -297,7 +298,7 @@ function AuthSurface({
 function SessionSurface({
   sessionState
 }: {
-  sessionState: ReturnType<typeof useGatewaySession<UserModuleDemoSession>>;
+  sessionState: UserModuleSessionState;
 }) {
   const refreshMe = useMutation(async () => {
     return await sessionState.refresh();

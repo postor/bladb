@@ -243,11 +243,98 @@ Fields:
 - `features.verifyEmail`: enables email verification flows
 - `features.resetPassword`: enables password reset flows
 
+Current execution status:
+
+- executed today:
+  - config validation at gateway startup
+  - feature gating for login/register behavior
+  - local users-module assembly metadata
+- modeled and validated, but not yet fully adapter-backed runtime behavior:
+  - `jwt.secret`
+  - `jwt.publicKeyFile`
+  - `jwt.privateKeyFile`
+  - `password.algorithm`
+  - `storage.mysql`
+  - `storage.mongodb`
+  - `mailer.smtp`
+
 Design intent:
 
 - `db.user` is the stable developer-facing API
 - the official users module can orchestrate MySQL, MongoDB, mailer, crypto, and future third-party modules
 - server-side implementation can evolve without changing the frontend module shape
+
+Quick cookbook:
+
+### HS256 + MySQL + SMTP
+
+```yaml
+official:
+  users:
+    enabled: true
+    session:
+      transport: gateway-auth
+    jwt:
+      algorithm: HS256
+      secret: ${BLADB_JWT_SECRET}
+    password:
+      algorithm: argon2id
+    storage:
+      engine: mysql
+      mysql:
+        dsn: ${BLADB_USERS_MYSQL_DSN}
+    mailer:
+      provider: smtp
+      from: no-reply@example.com
+      smtp:
+        host: smtp.example.com
+        port: 587
+        username: ${BLADB_SMTP_USER}
+        password: ${BLADB_SMTP_PASS}
+    features:
+      login: true
+      register: true
+      verifyEmail: false
+      resetPassword: false
+```
+
+### RS256 + MongoDB + SMTP
+
+```yaml
+official:
+  users:
+    enabled: true
+    session:
+      transport: gateway-auth
+    jwt:
+      algorithm: RS256
+      publicKeyFile: ./keys/users.public.pem
+      privateKeyFile: ./keys/users.private.pem
+    password:
+      algorithm: bcrypt
+    storage:
+      engine: mongodb
+      mongodb:
+        uri: ${BLADB_USERS_MONGODB_URI}
+        database: bladb_users
+    mailer:
+      provider: smtp
+      from: no-reply@example.com
+      smtp:
+        host: smtp.example.com
+        port: 587
+        username: ${BLADB_SMTP_USER}
+        password: ${BLADB_SMTP_PASS}
+    features:
+      login: true
+      register: true
+      verifyEmail: true
+      resetPassword: true
+```
+
+See also:
+
+- [db-user-module.md](/D:/study/bladb/apps/docs/db-user-module.md)
 
 ## Relative path rules
 
