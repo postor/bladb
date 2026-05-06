@@ -345,6 +345,82 @@ test("browser auth module clears stale sessions when refresh fails", async () =>
   assert.equal(auth.getToken(), undefined);
 });
 
+test("browser app module can restore an anonymous session through db.user.me without a local token", async () => {
+  installWindow();
+
+  const session: GatewaySession = {
+    token: "anon_flash_sale_token",
+    sessionKind: "anonymous",
+    anonymous: true,
+    user: {
+      app: "flash-sale",
+      uid: "anon_flash_sale_3001",
+      tenantId: "tenant_flash",
+      email: "anon+anon_flash_sale_3001@flash-sale.local",
+      displayName: "Anonymous flash sale 3001",
+      roles: ["buyer"],
+      anonymous: true
+    }
+  };
+
+  const requests: Array<{ url: string; headers: Headers }> = [];
+  const flashSaleModule = createBrowserAppModule({
+    baseUrl: "http://localhost:8787",
+    appName: "flash-sale",
+    tokenKey: "flash-sale.cookie.token",
+    sessionKey: "flash-sale.cookie.session",
+    routes: {
+      queueHistory: appGet<QueueTicket[]>("queue")
+    },
+    fetcher: async (input, init) => {
+      const url = String(input);
+      const headers = new Headers(init?.headers);
+      requests.push({ url, headers });
+
+      const parsed = new URL(url);
+      if (parsed.pathname === "/users/me") {
+        return jsonResponse(200, session);
+      }
+
+      throw new Error(`Unexpected request: ${parsed.pathname}`);
+    }
+  });
+
+  const restored = await flashSaleModule.user.me();
+
+  assert.deepEqual(restored, session);
+  assert.equal(requests[0]?.url.endsWith("/users/me?app=flash-sale"), true);
+  assert.equal(requests[0]?.headers.get("authorization"), null);
+  assert.deepEqual(flashSaleModule.user.read(), session);
+});
+
+test("browser app module allows required app routes to proceed in cookie session mode without a bearer token", async () => {
+  installWindow();
+
+  const requests: Array<{ url: string; headers: Headers }> = [];
+  const flashSaleModule = createBrowserAppModule({
+    baseUrl: "http://localhost:8787",
+    appName: "flash-sale",
+    tokenKey: "flash-sale.required-cookie.token",
+    sessionKey: "flash-sale.required-cookie.session",
+    routes: {
+      queueHistory: appGet<QueueTicket[]>("queue")
+    },
+    fetcher: async (input, init) => {
+      const url = String(input);
+      const headers = new Headers(init?.headers);
+      requests.push({ url, headers });
+      return jsonResponse(200, []);
+    }
+  });
+
+  const history = await flashSaleModule.api.queueHistory();
+
+  assert.deepEqual(history, []);
+  assert.equal(requests[0]?.url.endsWith("/apps/flash-sale/queue"), true);
+  assert.equal(requests[0]?.headers.get("authorization"), null);
+});
+
 test("browser session store drops orphaned session payload when bearer token is missing", async () => {
   installWindow();
 
@@ -372,18 +448,11 @@ test("browser session store drops orphaned session payload when bearer token is 
   assert.equal(window.localStorage.getItem("iot.orphan.session"), null);
 });
 
-test("browser app module does not call required app routes without a bearer token", async () => {
-  installWindow();
-
+test("plain client does not call required app routes without a bearer token or cookie session context", async () => {
   let requestCount = 0;
-  const flashSaleModule = createBrowserAppModule({
+  const client = createClient({
     baseUrl: "http://localhost:8787",
-    appName: "flash-sale",
-    tokenKey: "flash-sale.expired.token",
-    sessionKey: "flash-sale.expired.session",
-    routes: {
-      queueHistory: appGet<QueueTicket[]>("queue")
-    },
+    appAuth: "required",
     fetcher: async () => {
       requestCount += 1;
       throw new Error("fetcher should not be called without a token");
@@ -391,7 +460,7 @@ test("browser app module does not call required app routes without a bearer toke
   });
 
   await assert.rejects(
-    flashSaleModule.api.queueHistory(),
+    client.app("flash-sale").get("queue"),
     (error: unknown) =>
       error instanceof BladbError &&
       error.status === 401 &&
@@ -402,18 +471,11 @@ test("browser app module does not call required app routes without a bearer toke
   assert.equal(requestCount, 0);
 });
 
-test("browser app module does not call execute routes without a bearer token", async () => {
-  installWindow();
-
+test("plain client does not call execute routes without a bearer token or cookie session context", async () => {
   let requestCount = 0;
-  const iotModule = createBrowserAppModule({
+  const client = createClient({
     baseUrl: "http://localhost:8787",
-    appName: "iot-realtime",
-    tokenKey: "iot.execute.expired.token",
-    sessionKey: "iot.execute.expired.session",
-    routes: {
-      commandHistory: appGet<QueueTicket[]>("commands")
-    },
+    executeAuth: "required",
     fetcher: async () => {
       requestCount += 1;
       throw new Error("fetcher should not be called without a token");
@@ -421,7 +483,7 @@ test("browser app module does not call execute routes without a bearer token", a
   });
 
   await assert.rejects(
-    iotModule.db.mongo("devices").find({
+    client.mongo("devices").find({
       ownerUid: "u_1001"
     }),
     (error: unknown) =>

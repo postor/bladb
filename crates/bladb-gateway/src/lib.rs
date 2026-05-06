@@ -16,6 +16,7 @@ pub use local::{
     AppError, FlashSaleModule, FlashSaleModuleConfig, GatewayRuntimeConfig, InMemoryAuthService,
     InMemoryUserConfig, IotModule, IotModuleConfig, IotSubscription, LocalGatewayApp,
     LocalGatewayConfig, LocalGatewayModulesConfig, Ros2Module, Ros2ModuleConfig, Ros2Subscription,
+    SessionCookie,
 };
 pub use routing::{
     route_prepared_request, ModuleRegistry, ModuleRegistryInitError, RouteError, RouteSelection,

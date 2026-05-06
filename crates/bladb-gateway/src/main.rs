@@ -1,6 +1,7 @@
 use bladb_core::protocol::{GatewayFailure, GatewayRequest, GatewaySuccess, ResponseMeta};
 use bladb_gateway::{
     load_gateway_startup, GatewayStartup, IotSubscription, LocalGatewayApp, Ros2Subscription,
+    SessionCookie,
 };
 use serde_json::{json, Value};
 use std::{
@@ -73,37 +74,43 @@ fn serve(addr: SocketAddr, config_path: Option<&str>) -> Result<(), String> {
 
 fn handle_client(mut stream: TcpStream, state: &Arc<LocalGatewayApp>) -> Result<(), String> {
     let request = read_http_request(&mut stream)?;
+    let path = request.path_only().to_string();
+    let origin = request.header("origin").map(str::to_string);
     let bearer_token = request.header("authorization").map(str::to_string);
-    if request.method == "GET" && request.path.starts_with("/apps/ros2-bridge/messages/") {
+    if request.method == "GET" && path.starts_with("/apps/ros2-bridge/messages/") {
         if let Some(subscription) = state
-            .open_ros2_stream(&request.path, bearer_token.as_deref())
+            .open_ros2_stream(&path, bearer_token.as_deref())
             .map_err(|error| error.message.clone())?
         {
-            return stream_ros2_subscription(stream, subscription);
+            return stream_ros2_subscription(stream, subscription, origin.as_deref());
         }
     }
-    if request.method == "GET" && request.path.starts_with("/apps/iot-realtime/commands/") {
+    if request.method == "GET" && path.starts_with("/apps/iot-realtime/commands/") {
         if let Some(subscription) = state
-            .open_iot_stream(&request.path, bearer_token.as_deref())
+            .open_iot_stream(&path, bearer_token.as_deref())
             .map_err(|error| error.message.clone())?
         {
-            return stream_iot_subscription(stream, subscription);
+            return stream_iot_subscription(stream, subscription, origin.as_deref());
         }
     }
-    if request.method != "OPTIONS" && request.path.starts_with("/apps/") {
+    if request.method != "OPTIONS" && path.starts_with("/apps/") {
+        let session_cookie = app_session_cookie(&request);
         let response = match parse_optional_json_body(request.body.clone()) {
-            Ok(body) => match state.handle_app_api(
+            Ok(body) => match state.handle_app_api_http(
                 &request.method,
-                &request.path,
+                &path,
                 bearer_token.as_deref(),
+                session_cookie.as_deref(),
                 body,
             ) {
-                Ok(Some(data)) => Some(http_json(
+                Ok(result) if result.data.is_some() => Some(http_json(
                     StatusCode::Ok,
-                    json!({ "ok": true, "data": data }),
+                    json!({ "ok": true, "data": result.data }),
+                    origin.as_deref(),
+                    cookie_headers(result.session_cookie),
                 )),
-                Ok(None) => None,
-                Err(error) => Some(error_response(error)?),
+                Ok(_) => None,
+                Err(error) => Some(error_response(error, origin.as_deref())?),
             },
             Err(error) => Some(http_json(
                 StatusCode::BadRequest,
@@ -113,6 +120,8 @@ fn handle_client(mut stream: TcpStream, state: &Arc<LocalGatewayApp>) -> Result<
                     "message": error,
                     "meta": { "traceId": "dev-trace" }
                 }),
+                origin.as_deref(),
+                vec![],
             )),
         };
         if let Some(response) = response {
@@ -123,78 +132,80 @@ fn handle_client(mut stream: TcpStream, state: &Arc<LocalGatewayApp>) -> Result<
         }
     }
 
-    let response = match (request.method.as_str(), request.path.as_str()) {
-        ("GET", "/health") => http_json(StatusCode::Ok, json!({ "ok": true })),
+    let response = match (request.method.as_str(), path.as_str()) {
+        ("GET", "/health") => http_json(StatusCode::Ok, json!({ "ok": true }), origin.as_deref(), vec![]),
         ("GET", "/topology") => http_json(
             StatusCode::Ok,
             json!({ "ok": true, "data": state.topology_snapshot() }),
+            origin.as_deref(),
+            vec![],
         ),
         ("POST", "/execute") => handle_gateway_request(request.body, |gateway_request| {
             state.handle_execute_for_token(gateway_request, bearer_token.as_deref())
-        })?,
+        }, origin.as_deref())?,
         ("POST", "/route") => handle_gateway_request(request.body, |gateway_request| {
             state.inspect_request_for_token(gateway_request, bearer_token.as_deref())
-        })?,
+        }, origin.as_deref())?,
         ("POST", "/auth/login") | ("POST", "/users/login") => {
-            handle_json_body(request.body, |payload| {
+            handle_json_body(request.body, origin.as_deref(), |payload| {
                 let app = required_string(&payload, "app")?;
                 let email = required_string(&payload, "email")?;
                 let password = required_string(&payload, "password")?;
-                match state.user_login(&app, &email, &password) {
-                    Ok(data) => Ok(http_json(
+                match state.user_login_http(&app, &email, &password) {
+                    Ok(result) => Ok(http_json(
                         StatusCode::Ok,
-                        json!({ "ok": true, "data": data }),
+                        json!({ "ok": true, "data": result.data }),
+                        origin.as_deref(),
+                        cookie_headers(result.session_cookie),
                     )),
-                    Err(error) => error_response(error),
+                    Err(error) => error_response(error, origin.as_deref()),
                 }
             })?
         }
         ("POST", "/auth/register") | ("POST", "/users/register") => {
-            handle_json_body(request.body, |payload| {
+            handle_json_body(request.body, origin.as_deref(), |payload| {
                 let app = required_string(&payload, "app")?;
                 let email = required_string(&payload, "email")?;
                 let password = required_string(&payload, "password")?;
                 let display_name = required_string(&payload, "displayName")?;
-                match state.user_register(&app, &email, &password, &display_name) {
-                    Ok(data) => Ok(http_json(
+                match state.user_register_http(&app, &email, &password, &display_name) {
+                    Ok(result) => Ok(http_json(
                         StatusCode::Ok,
-                        json!({ "ok": true, "data": data }),
+                        json!({ "ok": true, "data": result.data }),
+                        origin.as_deref(),
+                        cookie_headers(result.session_cookie),
                     )),
-                    Err(error) => error_response(error),
+                    Err(error) => error_response(error, origin.as_deref()),
                 }
             })?
         }
-        ("GET", "/auth/me") | ("GET", "/users/me") => match bearer_token.as_deref() {
-            Some(token) => match state.user_me(token) {
-                Ok(data) => http_json(StatusCode::Ok, json!({ "ok": true, "data": data })),
-                Err(error) => error_response(error)?,
-            },
-            None => http_json(
-                StatusCode::Unauthorized,
-                json!({
-                    "ok": false,
-                    "code": "AUTH_EXPIRED",
-                    "message": "missing bearer token",
-                    "meta": { "traceId": "dev-trace" }
-                }),
-            ),
-        },
-        ("POST", "/auth/logout") | ("POST", "/users/logout") => match bearer_token.as_deref() {
-            Some(token) => match state.user_logout(token) {
-                Ok(data) => http_json(StatusCode::Ok, json!({ "ok": true, "data": data })),
-                Err(error) => error_response(error)?,
-            },
-            None => http_json(
-                StatusCode::Unauthorized,
-                json!({
-                    "ok": false,
-                    "code": "AUTH_EXPIRED",
-                    "message": "missing bearer token",
-                    "meta": { "traceId": "dev-trace" }
-                }),
-            ),
-        },
-        ("OPTIONS", _) => http_empty(StatusCode::NoContent),
+        ("GET", "/auth/me") | ("GET", "/users/me") => {
+            let app = request.query_param("app");
+            let cookie_token = app.and_then(|value| request.cookie(&SessionCookie::cookie_name_for_app(value)));
+            match state.user_me_http(app, bearer_token.as_deref(), cookie_token) {
+                Ok(result) => http_json(
+                    StatusCode::Ok,
+                    json!({ "ok": true, "data": result.data }),
+                    origin.as_deref(),
+                    cookie_headers(result.session_cookie),
+                ),
+                Err(error) => error_response(error, origin.as_deref())?,
+            }
+        }
+        ("POST", "/auth/logout") | ("POST", "/users/logout") => {
+            let app = request.query_param("app");
+            let cookie_token = app.and_then(|value| request.cookie(&SessionCookie::cookie_name_for_app(value)));
+            match state.user_logout_http(app, bearer_token.as_deref(), cookie_token) {
+                Ok(result) => http_json(
+                    StatusCode::Ok,
+                    json!({ "ok": true, "data": result.data }),
+                    origin.as_deref(),
+                    cookie_headers(result.session_cookie),
+                ),
+                Err(error) => error_response(error, origin.as_deref())?,
+            }
+        }
+        ("OPTIONS", _) => http_empty(StatusCode::NoContent, origin.as_deref(), vec![]),
         _ => http_json(
             StatusCode::NotFound,
             json!({
@@ -203,6 +214,8 @@ fn handle_client(mut stream: TcpStream, state: &Arc<LocalGatewayApp>) -> Result<
                 "message": "route not found",
                 "meta": { "traceId": "dev-trace" }
             }),
+            origin.as_deref(),
+            vec![],
         ),
     };
 
@@ -237,6 +250,7 @@ fn load_gateway_app(config_path: Option<&str>) -> Result<LocalGatewayApp, String
 
 fn handle_json_body(
     body: Vec<u8>,
+    origin: Option<&str>,
     handler: impl FnOnce(Value) -> Result<String, String>,
 ) -> Result<String, String> {
     let payload = match serde_json::from_slice::<Value>(&body) {
@@ -250,6 +264,8 @@ fn handle_json_body(
                     "message": format!("failed to parse json body: {error}"),
                     "meta": { "traceId": "dev-trace" }
                 }),
+                origin,
+                vec![],
             ))
         }
     };
@@ -264,6 +280,8 @@ fn handle_json_body(
                 "message": message,
                 "meta": { "traceId": "dev-trace" }
             }),
+            origin,
+            vec![],
         )),
     }
 }
@@ -281,6 +299,7 @@ fn parse_optional_json_body(body: Vec<u8>) -> Result<Option<Value>, String> {
 fn handle_gateway_request(
     body: Vec<u8>,
     handler: impl FnOnce(GatewayRequest) -> Result<Value, bladb_gateway::AppError>,
+    origin: Option<&str>,
 ) -> Result<String, String> {
     match serde_json::from_slice::<GatewayRequest>(&body) {
         Ok(gateway_request) => match handler(gateway_request) {
@@ -295,6 +314,8 @@ fn handle_gateway_request(
                     },
                 })
                 .map_err(|error| error.to_string())?,
+                origin,
+                vec![],
             )),
             Err(error) => Ok(http_json(
                 StatusCode::from_u16(error.status),
@@ -308,6 +329,8 @@ fn handle_gateway_request(
                     },
                 })
                 .map_err(|error| error.to_string())?,
+                origin,
+                vec![],
             )),
         },
         Err(error) => Ok(http_json(
@@ -318,6 +341,8 @@ fn handle_gateway_request(
                 "message": format!("failed to parse request json: {error}"),
                 "meta": { "traceId": "dev-trace" }
             }),
+            origin,
+            vec![],
         )),
     }
 }
@@ -330,7 +355,7 @@ fn required_string(payload: &Value, field: &str) -> Result<String, String> {
         .ok_or_else(|| format!("missing or invalid field `{field}`"))
 }
 
-fn error_response(error: bladb_gateway::AppError) -> Result<String, String> {
+fn error_response(error: bladb_gateway::AppError, origin: Option<&str>) -> Result<String, String> {
     Ok(http_json(
         StatusCode::from_u16(error.status),
         serde_json::to_value(GatewayFailure {
@@ -343,6 +368,8 @@ fn error_response(error: bladb_gateway::AppError) -> Result<String, String> {
             },
         })
         .map_err(|render_error| render_error.to_string())?,
+        origin,
+        vec![],
     ))
 }
 
@@ -531,23 +558,77 @@ fn find_header_end(buffer: &[u8]) -> Option<usize> {
     buffer.windows(4).position(|window| window == b"\r\n\r\n")
 }
 
-fn http_json(status: StatusCode, body: Value) -> String {
+fn http_json(
+    status: StatusCode,
+    body: Value,
+    origin: Option<&str>,
+    extra_headers: Vec<(String, String)>,
+) -> String {
     let rendered = serde_json::to_string(&body).unwrap_or_else(|_| "{\"ok\":false}".into());
-    format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: content-type, authorization\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nConnection: close\r\n\r\n{}",
-        status.code(),
-        status.reason(),
-        rendered.len(),
-        rendered
+    http_response(
+        status,
+        Some("application/json"),
+        rendered.as_bytes(),
+        origin,
+        extra_headers,
     )
 }
 
-fn http_empty(status: StatusCode) -> String {
-    format!(
-        "HTTP/1.1 {} {}\r\nContent-Length: 0\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: content-type, authorization\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nConnection: close\r\n\r\n",
+fn http_empty(status: StatusCode, origin: Option<&str>, extra_headers: Vec<(String, String)>) -> String {
+    http_response(status, None, &[], origin, extra_headers)
+}
+
+fn http_response(
+    status: StatusCode,
+    content_type: Option<&str>,
+    body: &[u8],
+    origin: Option<&str>,
+    extra_headers: Vec<(String, String)>,
+) -> String {
+    let allow_origin = origin.unwrap_or("*");
+    let mut response = format!(
+        "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: {}\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Headers: content-type, authorization\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nConnection: close\r\n",
         status.code(),
-        status.reason()
+        status.reason(),
+        body.len(),
+        allow_origin
+    );
+
+    if let Some(content_type) = content_type {
+        response.push_str(&format!("Content-Type: {content_type}\r\n"));
+    }
+
+    for (name, value) in extra_headers {
+        response.push_str(&format!("{name}: {value}\r\n"));
+    }
+
+    response.push_str("\r\n");
+    response.push_str(&String::from_utf8_lossy(body));
+    response
+}
+
+fn stream_response_headers(origin: Option<&str>) -> String {
+    let allow_origin = origin.unwrap_or("*");
+    format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\nAccess-Control-Allow-Origin: {allow_origin}\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Headers: content-type, authorization\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n\r\n"
     )
+}
+
+fn cookie_headers(cookie: Option<SessionCookie>) -> Vec<(String, String)> {
+    cookie
+        .map(|cookie| vec![("Set-Cookie".to_string(), cookie.header_value())])
+        .unwrap_or_default()
+}
+
+fn app_session_cookie(request: &HttpRequest) -> Option<String> {
+    let app = request
+        .path_only()
+        .trim_start_matches("/apps/")
+        .split('/')
+        .next()?;
+    request
+        .cookie(&SessionCookie::cookie_name_for_app(app))
+        .map(str::to_string)
 }
 
 fn usage() -> String {
@@ -586,6 +667,33 @@ impl HttpRequest {
         self.headers
             .get(&name.to_ascii_lowercase())
             .map(String::as_str)
+    }
+
+    fn path_only(&self) -> &str {
+        self.path.split('?').next().unwrap_or(self.path.as_str())
+    }
+
+    fn query_param(&self, name: &str) -> Option<&str> {
+        let (_, query) = self.path.split_once('?')?;
+        query.split('&').find_map(|pair| {
+            let (key, value) = pair.split_once('=')?;
+            if key == name {
+                Some(value)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn cookie(&self, name: &str) -> Option<&str> {
+        self.header("cookie")?.split(';').find_map(|entry| {
+            let (key, value) = entry.trim().split_once('=')?;
+            if key == name {
+                Some(value.trim())
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -641,10 +749,11 @@ impl StatusCode {
 fn stream_ros2_subscription(
     mut stream: TcpStream,
     subscription: Ros2Subscription,
+    origin: Option<&str>,
 ) -> Result<(), String> {
     stream
         .write_all(
-            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: content-type, authorization\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n\r\n",
+            stream_response_headers(origin).as_bytes(),
         )
         .map_err(|error| format!("failed to write stream headers: {error}"))?;
 
@@ -783,10 +892,11 @@ fn stream_ros2_subscription(
 fn stream_iot_subscription(
     mut stream: TcpStream,
     subscription: IotSubscription,
+    origin: Option<&str>,
 ) -> Result<(), String> {
     stream
         .write_all(
-            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: content-type, authorization\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n\r\n",
+            stream_response_headers(origin).as_bytes(),
         )
         .map_err(|error| format!("failed to write stream headers: {error}"))?;
 

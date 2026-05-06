@@ -39,9 +39,12 @@ In the current example app, the browser reads a module-owned summary API first, 
 
 ```txt
 GET /apps/flash-sale/summary
+GET /users/me?app=flash-sale
 POST /apps/flash-sale/queue
 GET /apps/flash-sale/queue/:ticketId
 ```
+
+`GET /apps/flash-sale/summary` now establishes or renews the anonymous browser identity through a cookie-backed session, and `GET /users/me?app=flash-sale` returns the same identity through the official `db.user` contract.
 
 That keeps item, stock, wallet, and recent-order aggregation on the Rust side while preserving lower-level SQL and Redis policy fixtures underneath.
 

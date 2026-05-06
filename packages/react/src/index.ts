@@ -186,8 +186,8 @@ export function useGatewaySession<TSession extends GatewaySession>(
   const browserAuth = resolveBrowserAuthModule(auth, store);
   const [session, setSession] = useState<TSession | null>(() => browserAuth.read());
   const [error, setError] = useState<Error | null>(null);
-  const [loading, setLoading] = useState<boolean>(() => Boolean(browserAuth.getToken()));
-  const [ready, setReady] = useState<boolean>(() => !browserAuth.getToken());
+  const [loading, setLoading] = useState<boolean>(true);
+  const [ready, setReady] = useState<boolean>(false);
 
   const login = async (input: LoginInput): Promise<TSession> => {
     setLoading(true);
@@ -259,11 +259,6 @@ export function useGatewaySession<TSession extends GatewaySession>(
   };
 
   useEffect(() => {
-    if (!browserAuth.getToken()) {
-      setReady(true);
-      return;
-    }
-
     void refresh();
   }, []);
 

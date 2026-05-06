@@ -1,6 +1,7 @@
 mod app;
 mod app_api;
 mod auth;
+mod blog;
 mod config;
 mod flash_sale;
 mod iot;
@@ -11,7 +12,7 @@ use crate::RuntimeError;
 use bladb_core::protocol::ErrorCode;
 use serde_json::Value;
 
-pub use app::LocalGatewayApp;
+pub use app::{GatewayHttpResponse, LocalGatewayApp};
 pub(crate) use app_api::{AppApiHandler, AppApiRequest};
 pub use auth::{InMemoryAuthService, InMemoryUserConfig};
 pub(crate) use config::LocalGatewayFileConfig;
@@ -19,10 +20,11 @@ pub use config::{
     GatewayRuntimeConfig, LocalGatewayConfig, LocalGatewayModulesConfig, OfficialModulesConfig,
     OfficialUsersModuleConfig,
 };
+pub use blog::{BlogModule, BlogModuleConfig};
 pub use flash_sale::{FlashSaleModule, FlashSaleModuleConfig};
 pub use iot::{IotModule, IotModuleConfig, IotSubscription};
 pub use ros2::{Ros2Module, Ros2ModuleConfig, Ros2Subscription};
-pub use user::OfficialUserModule;
+pub use user::{OfficialUserModule, SessionCookie};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppError {
@@ -505,6 +507,24 @@ mod tests {
     }
 
     #[test]
+    fn local_app_dispatches_blog_public_api_without_bearer_token() {
+        let config_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/examples/gateway/local-gateway.yaml");
+        let config = LocalGatewayConfig::from_path(&config_path).expect("load gateway config");
+        let app = LocalGatewayApp::from_local_config(config).expect("build app from config");
+
+        let response = app
+            .handle_app_api("GET", "/apps/blog/posts", None, None)
+            .expect("blog public api result")
+            .expect("blog public api payload");
+        let posts = response.as_array().expect("blog public post list");
+
+        assert!(!posts.is_empty());
+        assert!(posts.iter().all(|post| post["published"] == true));
+        assert!(posts.iter().all(|post| post["tenantId"] == "tenant_blog"));
+    }
+
+    #[test]
     fn local_app_dispatches_flash_sale_queue_api() {
         let app =
             LocalGatewayApp::with_standard_modules(example_runtime_configs(), test_user_module())
@@ -599,6 +619,40 @@ mod tests {
         assert!(response["orders"]
             .as_array()
             .is_some_and(|orders| !orders.is_empty()));
+    }
+
+    #[test]
+    fn local_app_restores_anonymous_flash_sale_identity_through_cookie_and_me() {
+        let app =
+            LocalGatewayApp::with_standard_modules(example_runtime_configs(), test_user_module())
+                .expect("build local gateway app");
+
+        let summary = app
+            .handle_app_api_http("GET", "/apps/flash-sale/summary", None, None, None)
+            .expect("anonymous summary response");
+        let cookie = summary
+            .session_cookie
+            .expect("anonymous session cookie should be set");
+        let uid = summary.data.as_ref().expect("summary payload")["identity"]["uid"]
+            .as_str()
+            .expect("anonymous uid")
+            .to_string();
+
+        let cookie_value = cookie
+            .header_value()
+            .split(';')
+            .next()
+            .and_then(|pair| pair.split_once('='))
+            .map(|(_, value)| value.to_string())
+            .expect("cookie token");
+
+        let me = app
+            .user_me_http(Some("flash-sale"), None, Some(cookie_value.as_str()))
+            .expect("cookie me");
+
+        assert_eq!(me.data["user"]["uid"], uid);
+        assert_eq!(me.data["anonymous"], true);
+        assert!(me.session_cookie.is_some());
     }
 
     #[test]

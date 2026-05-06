@@ -141,6 +141,7 @@ export interface BladbClientOptions {
   fetcher?: typeof fetch;
   executeAuth?: "optional" | "required";
   appAuth?: "optional" | "required";
+  sessionAppName?: string;
 }
 
 export interface GatewaySessionUser {
@@ -150,11 +151,17 @@ export interface GatewaySessionUser {
   email: string;
   displayName: string;
   roles: string[];
+  anonymous?: boolean;
 }
 
 export interface GatewaySession<TUser = GatewaySessionUser> {
   token: string;
   user: TUser;
+  sessionKind?: "authenticated" | "anonymous";
+  anonymous?: boolean;
+  issuedAt?: number;
+  lastSeenAt?: number;
+  expiresAt?: number;
 }
 
 export interface BrowserSessionStore<TSession = GatewaySession> {
@@ -297,7 +304,7 @@ async function requestJson<T>(
 ): Promise<T> {
   const fetcher = options.fetcher ?? fetch;
   const token = requestOptions.auth === "none" ? undefined : options.getToken?.();
-  if (requestOptions.auth === "required" && !token) {
+  if (requestOptions.auth === "required" && !token && !options.sessionAppName) {
     throw new BladbError("missing bearer token", {
       status: 401,
       code: "AUTH_EXPIRED"
@@ -305,6 +312,7 @@ async function requestJson<T>(
   }
   const response = await fetcher(`${options.baseUrl}${requestOptions.path}`, {
     method: requestOptions.method ?? "GET",
+    credentials: "include",
     headers: {
       ...(requestOptions.body === undefined ? {} : { "content-type": "application/json" }),
       ...(token ? { authorization: `Bearer ${token}` } : {})
@@ -408,7 +416,7 @@ export interface BrowserAuthModule<TSession extends GatewaySession = GatewaySess
   register(input: RegisterInput): Promise<TSession>;
   me(): Promise<TSession>;
   refresh(): Promise<TSession | null>;
-  logout(): void;
+  logout(): Promise<void>;
 }
 
 export interface BrowserUserModule<TSession extends GatewaySession = GatewaySession>
@@ -584,7 +592,8 @@ export function createBrowserAppModule<
     baseUrl: options.baseUrl,
     fetcher: options.fetcher,
     getToken: () => sessionStore.getToken(),
-    executeAuth: "required"
+    executeAuth: "required",
+    sessionAppName: options.appName
   });
   const user = createBrowserUserModule<TSession>(client.user, sessionStore);
   const auth = createBrowserAuthModule<TSession>(client.auth, sessionStore);
@@ -633,10 +642,6 @@ export function createBrowserAuthModule<TSession extends GatewaySession = Gatewa
     },
 
     async refresh() {
-      if (!store.getToken()) {
-        return applySession(null);
-      }
-
       try {
         const session = await auth.me();
         return applySession(session as TSession);
@@ -645,14 +650,15 @@ export function createBrowserAuthModule<TSession extends GatewaySession = Gatewa
       }
     },
 
-    logout() {
+    async logout() {
       const remoteLogout = auth.logout?.().catch(() => undefined);
       applySession(null);
-      void remoteLogout;
+      await remoteLogout;
     },
 
-    me() {
-      return auth.me() as Promise<TSession>;
+    async me() {
+      const session = (await auth.me()) as TSession;
+      return applySession(session) as TSession;
     }
   };
 }
@@ -693,6 +699,9 @@ export interface BladbClient {
 }
 
 function buildClient(options: BladbClientOptions, baseMeta?: RequestMetaInput): BladbClient {
+  const sessionAppSuffix = options.sessionAppName
+    ? `?app=${encodeURIComponent(options.sessionAppName)}`
+    : "";
   const classifySql = (statement: string): { kind: Kind; action: string } => {
     const verb = statement.trimStart().split(/\s+/, 1)[0]?.toLowerCase();
 
@@ -737,17 +746,17 @@ function buildClient(options: BladbClientOptions, baseMeta?: RequestMetaInput): 
 
     me() {
       return requestJson<GatewaySession>(options, {
-        path: "/users/me",
+        path: `/users/me${sessionAppSuffix}`,
         method: "GET",
-        auth: "required"
+        auth: "optional"
       });
     },
 
     logout() {
       return requestJson<{ loggedOut: boolean }>(options, {
-        path: "/users/logout",
+        path: `/users/logout${sessionAppSuffix}`,
         method: "POST",
-        auth: "required"
+        auth: "optional"
       });
     }
   };
@@ -773,17 +782,17 @@ function buildClient(options: BladbClientOptions, baseMeta?: RequestMetaInput): 
 
     me() {
       return requestJson<GatewaySession>(options, {
-        path: "/auth/me",
+        path: `/auth/me${sessionAppSuffix}`,
         method: "GET",
-        auth: "required"
+        auth: "optional"
       });
     },
 
     logout() {
       return requestJson<{ loggedOut: boolean }>(options, {
-        path: "/auth/logout",
+        path: `/auth/logout${sessionAppSuffix}`,
         method: "POST",
-        auth: "required"
+        auth: "optional"
       });
     }
   };
@@ -824,7 +833,7 @@ function buildClient(options: BladbClientOptions, baseMeta?: RequestMetaInput): 
           const suffix = path.replace(/^\/+/, "");
           const token = options.getToken?.();
           const authMode = options.appAuth ?? "required";
-          if (authMode === "required" && !token) {
+          if (authMode === "required" && !token && !options.sessionAppName) {
             throw new BladbError("missing bearer token", {
               status: 401,
               code: "AUTH_EXPIRED"
@@ -835,6 +844,7 @@ function buildClient(options: BladbClientOptions, baseMeta?: RequestMetaInput): 
             `${options.baseUrl}${suffix ? `${basePath}/${suffix}` : basePath}`,
             {
               method: "GET",
+              credentials: "include",
               headers: {
                 ...(token ? { authorization: `Bearer ${token}` } : {}),
                 accept: "text/event-stream"

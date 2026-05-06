@@ -13,6 +13,65 @@ pub struct OfficialUserModule {
     assembly: OfficialUserAssembly,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionCookie {
+    app: String,
+    token: String,
+    max_age_seconds: u64,
+    clearing: bool,
+}
+
+impl SessionCookie {
+    pub(crate) fn from_session(session: &AuthSession) -> Self {
+        Self {
+            app: session.user.app.clone(),
+            token: session.token.clone(),
+            max_age_seconds: session.cookie_max_age_seconds(),
+            clearing: false,
+        }
+    }
+
+    pub(crate) fn clearing(app: &str) -> Self {
+        Self {
+            app: app.trim().to_ascii_lowercase(),
+            token: "expired".into(),
+            max_age_seconds: 0,
+            clearing: true,
+        }
+    }
+
+    pub fn cookie_name_for_app(app: &str) -> String {
+        format!(
+            "bladb_sid_{}",
+            app.trim()
+                .to_ascii_lowercase()
+                .chars()
+                .map(|character| {
+                    if character.is_ascii_alphanumeric() {
+                        character
+                    } else {
+                        '_'
+                    }
+                })
+                .collect::<String>()
+        )
+    }
+
+    pub fn header_value(&self) -> String {
+        let mut parts = vec![
+            format!("{}={}", Self::cookie_name_for_app(&self.app), self.token),
+            "Path=/".into(),
+            format!("Max-Age={}", self.max_age_seconds),
+            "HttpOnly".into(),
+            "SameSite=Lax".into(),
+        ];
+        if self.clearing {
+            parts.push("Expires=Thu, 01 Jan 1970 00:00:00 GMT".into());
+        }
+        parts.join("; ")
+    }
+}
+
 impl OfficialUserModule {
     pub fn from_config(
         config: Option<OfficialUsersModuleConfig>,
@@ -42,8 +101,7 @@ impl OfficialUserModule {
     }
 
     pub fn login(&self, app: &str, email: &str, password: &str) -> Result<Value, AppError> {
-        self.provider
-            .login(app, email, password)
+        self.login_session(app, email, password)
             .map(|session| session.to_public_json())
     }
 
@@ -54,24 +112,92 @@ impl OfficialUserModule {
         password: &str,
         display_name: &str,
     ) -> Result<Value, AppError> {
-        self.provider
-            .register(app, email, password, display_name)
+        self.register_session(app, email, password, display_name)
             .map(|session| session.to_public_json())
     }
 
     pub fn me(&self, bearer_token: &str) -> Result<Value, AppError> {
         self.provider
-            .me(bearer_token)
+            .session_from_bearer(bearer_token)
             .map(|session| session.to_public_json())
     }
 
     pub fn logout(&self, bearer_token: &str) -> Result<Value, AppError> {
-        self.provider.logout(bearer_token)?;
+        self.provider.logout_session(bearer_token)?;
         Ok(json!({ "revoked": true }))
+    }
+
+    pub(crate) fn login_session(
+        &self,
+        app: &str,
+        email: &str,
+        password: &str,
+    ) -> Result<AuthSession, AppError> {
+        self.provider.login(app, email, password)
+    }
+
+    pub(crate) fn register_session(
+        &self,
+        app: &str,
+        email: &str,
+        password: &str,
+        display_name: &str,
+    ) -> Result<AuthSession, AppError> {
+        self.provider
+            .register(app, email, password, display_name)
     }
 
     pub(crate) fn session_from_bearer(&self, bearer_token: &str) -> Result<AuthSession, AppError> {
         self.provider.session_from_bearer(bearer_token)
+    }
+
+    pub(crate) fn session_from_cookie(
+        &self,
+        app: &str,
+        cookie_token: &str,
+    ) -> Result<AuthSession, AppError> {
+        self.provider.session_from_cookie(app, cookie_token)
+    }
+
+    pub(crate) fn ensure_anonymous_session(&self, app: &str) -> Result<AuthSession, AppError> {
+        self.provider.ensure_anonymous_session(app)
+    }
+
+    pub(crate) fn me_for_request(
+        &self,
+        app: Option<&str>,
+        bearer_token: Option<&str>,
+        cookie_token: Option<&str>,
+    ) -> Result<AuthSession, AppError> {
+        if let Some(token) = bearer_token {
+            return self.provider.session_from_bearer(token);
+        }
+
+        let app = app.ok_or_else(|| AppError::unauthorized("missing app for session cookie"))?;
+        let cookie = cookie_token
+            .ok_or_else(|| AppError::unauthorized("missing bearer token or session cookie"))?;
+
+        self.provider.session_from_cookie(app, cookie)
+    }
+
+    pub(crate) fn logout_for_request(
+        &self,
+        app: Option<&str>,
+        bearer_token: Option<&str>,
+        cookie_token: Option<&str>,
+    ) -> Result<Option<SessionCookie>, AppError> {
+        if let Some(token) = bearer_token {
+            let session = self.provider.session_from_bearer(token)?;
+            self.provider.logout_session(token)?;
+            return Ok(Some(SessionCookie::clearing(&session.user.app)));
+        }
+
+        let app = app.ok_or_else(|| AppError::unauthorized("missing app for session cookie"))?;
+        let cookie = cookie_token
+            .ok_or_else(|| AppError::unauthorized("missing bearer token or session cookie"))?;
+        let session = self.provider.session_from_cookie(app, cookie)?;
+        self.provider.logout_session(&session.token)?;
+        Ok(Some(SessionCookie::clearing(app)))
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -92,9 +218,10 @@ pub trait UserModuleProvider: Send + Sync {
         password: &str,
         display_name: &str,
     ) -> Result<AuthSession, AppError>;
-    fn me(&self, bearer_token: &str) -> Result<AuthSession, AppError>;
-    fn logout(&self, bearer_token: &str) -> Result<(), AppError>;
     fn session_from_bearer(&self, bearer_token: &str) -> Result<AuthSession, AppError>;
+    fn session_from_cookie(&self, app: &str, cookie_token: &str) -> Result<AuthSession, AppError>;
+    fn ensure_anonymous_session(&self, app: &str) -> Result<AuthSession, AppError>;
+    fn logout_session(&self, session_token: &str) -> Result<(), AppError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,16 +300,20 @@ impl UserModuleProvider for InMemoryUserModuleProvider {
         self.auth.register(app, email, password, display_name)
     }
 
-    fn me(&self, bearer_token: &str) -> Result<AuthSession, AppError> {
-        self.auth.session_from_bearer(bearer_token)
-    }
-
-    fn logout(&self, bearer_token: &str) -> Result<(), AppError> {
-        self.auth.logout(bearer_token).map(|_| ())
-    }
-
     fn session_from_bearer(&self, bearer_token: &str) -> Result<AuthSession, AppError> {
         self.auth.session_from_bearer(bearer_token)
+    }
+
+    fn session_from_cookie(&self, app: &str, cookie_token: &str) -> Result<AuthSession, AppError> {
+        self.auth.session_from_cookie(app, cookie_token)
+    }
+
+    fn ensure_anonymous_session(&self, app: &str) -> Result<AuthSession, AppError> {
+        self.auth.ensure_anonymous_session(app)
+    }
+
+    fn logout_session(&self, session_token: &str) -> Result<(), AppError> {
+        self.auth.logout(session_token).map(|_| ())
     }
 }
 
@@ -269,5 +400,17 @@ mod tests {
         assert!(!module.is_enabled());
         assert_eq!(module.assembly().seed_user_count, 1);
         assert_eq!(module.assembly().session_transport, None);
+    }
+
+    #[test]
+    fn cookie_names_are_scoped_per_app() {
+        assert_eq!(
+            SessionCookie::cookie_name_for_app("flash-sale"),
+            "bladb_sid_flash_sale"
+        );
+        assert_eq!(
+            SessionCookie::cookie_name_for_app("user-module-demo"),
+            "bladb_sid_user_module_demo"
+        );
     }
 }

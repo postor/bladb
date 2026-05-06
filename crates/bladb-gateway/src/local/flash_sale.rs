@@ -1,6 +1,6 @@
 use super::{
-    auth::AuthUser, now_label, value_as_i64, value_as_string, AppApiHandler, AppApiRequest,
-    AppError,
+    auth::AuthSession,
+    now_label, value_as_i64, value_as_string, AppApiHandler, AppApiRequest, AppError,
 };
 use crate::{ExecutionContext, ModuleRuntime, RuntimeError};
 use serde::{Deserialize, Serialize};
@@ -16,6 +16,7 @@ use std::{
 pub struct FlashSaleModule {
     state: Arc<Mutex<FlashSaleState>>,
     queue: FlashSaleQueueConfig,
+    allow_anonymous_app_access: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +30,8 @@ pub struct FlashSaleModuleConfig {
     pub orders: Vec<FlashSaleOrderConfig>,
     #[serde(default)]
     pub queue: FlashSaleQueueConfig,
+    #[serde(default)]
+    pub allow_anonymous_app_access: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,9 +67,22 @@ pub struct FlashSaleQueueConfig {
 
 struct FlashSaleState {
     item: FlashSaleItemConfig,
+    redis: FlashSaleRedisState,
+    db: FlashSaleDbState,
+    worker: FlashSaleWorkerState,
+    default_wallet_balance: i64,
+}
+
+struct FlashSaleRedisState {
     stock: i64,
     wallets: HashMap<String, i64>,
+}
+
+struct FlashSaleDbState {
     orders: Vec<FlashSaleOrderConfig>,
+}
+
+struct FlashSaleWorkerState {
     tickets: HashMap<String, QueueTicket>,
     next_ticket_id: u64,
 }
@@ -83,6 +99,16 @@ struct QueueTicket {
     message: String,
     created_at: String,
     updated_at: String,
+    steps: Vec<CollaborationStep>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CollaborationStep {
+    role: String,
+    action: String,
+    detail: String,
+    at: String,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -124,6 +150,7 @@ impl Default for FlashSaleModuleConfig {
                 },
             ],
             queue: FlashSaleQueueConfig::default(),
+            allow_anonymous_app_access: true,
         }
     }
 }
@@ -143,22 +170,37 @@ impl FlashSaleModule {
     }
 
     pub fn from_config(config: FlashSaleModuleConfig) -> Self {
+        let default_wallet_balance = config
+            .wallets
+            .values()
+            .copied()
+            .max()
+            .unwrap_or(1280);
+
         Self {
             state: Arc::new(Mutex::new(FlashSaleState {
                 item: config.item,
-                stock: config.stock,
-                wallets: config.wallets,
-                orders: config.orders,
-                tickets: HashMap::new(),
-                next_ticket_id: 1,
+                redis: FlashSaleRedisState {
+                    stock: config.stock,
+                    wallets: config.wallets,
+                },
+                db: FlashSaleDbState {
+                    orders: config.orders,
+                },
+                worker: FlashSaleWorkerState {
+                    tickets: HashMap::new(),
+                    next_ticket_id: 1,
+                },
+                default_wallet_balance,
             })),
             queue: config.queue,
+            allow_anonymous_app_access: config.allow_anonymous_app_access,
         }
     }
 
     pub(crate) fn enqueue_purchase(
         &self,
-        user: &AuthUser,
+        session: &AuthSession,
         sku: &str,
         quantity: i64,
     ) -> Result<Value, AppError> {
@@ -168,15 +210,18 @@ impl FlashSaleModule {
             ));
         }
 
+        let uid = session.user.uid.clone();
         let (ticket_id, position) = {
             let mut state = self
                 .state
                 .lock()
                 .map_err(|_| AppError::internal("flash-sale state lock poisoned"))?;
-            let sequence = state.next_ticket_id;
+            let sequence = state.worker.next_ticket_id;
             let ticket_id = format!("ticket_{sequence:04}");
-            state.next_ticket_id += 1;
+            state.worker.next_ticket_id += 1;
+            ensure_wallet_balance(&mut state, &uid);
             let position = state
+                .worker
                 .tickets
                 .values()
                 .filter(|ticket| {
@@ -186,19 +231,25 @@ impl FlashSaleModule {
                 + 1;
 
             let now = now_label();
-            state.tickets.insert(
+            state.worker.tickets.insert(
                 ticket_id.clone(),
                 QueueTicket {
                     id: ticket_id.clone(),
-                    uid: user.uid.clone(),
+                    uid: uid.clone(),
                     sku: sku.into(),
                     quantity,
                     sequence,
                     status: QueueStatus::Queued,
                     order_id: None,
-                    message: "Waiting for reservation worker".into(),
+                    message: "Queued for worker reservation".into(),
                     created_at: now.clone(),
-                    updated_at: now,
+                    updated_at: now.clone(),
+                    steps: vec![step(
+                        "worker",
+                        "queue",
+                        format!("Accepted queue request for {uid}"),
+                        now,
+                    )],
                 },
             );
 
@@ -208,18 +259,11 @@ impl FlashSaleModule {
         let state = Arc::clone(&self.state);
         let queue = self.queue.clone();
         let spawned_ticket_id = ticket_id.clone();
-        let user_uid = user.uid.clone();
         thread::spawn(move || {
-            process_ticket(
-                state,
-                queue,
-                spawned_ticket_id.as_str(),
-                &user_uid,
-                position,
-            );
+            process_ticket(state, queue, &spawned_ticket_id, position);
         });
 
-        self.ticket_details(&user.uid, &ticket_id)
+        self.ticket_details(&uid, &ticket_id)
     }
 
     pub(crate) fn ticket_details(&self, uid: &str, ticket_id: &str) -> Result<Value, AppError> {
@@ -228,6 +272,7 @@ impl FlashSaleModule {
             .lock()
             .map_err(|_| AppError::internal("flash-sale state lock poisoned"))?;
         let ticket = state
+            .worker
             .tickets
             .get(ticket_id)
             .ok_or_else(|| AppError::invalid_request("queue ticket not found"))?;
@@ -246,6 +291,7 @@ impl FlashSaleModule {
             Err(_) => return Value::Array(vec![]),
         };
         let mut tickets = state
+            .worker
             .tickets
             .values()
             .filter(|ticket| ticket.uid == uid)
@@ -260,12 +306,32 @@ impl FlashSaleModule {
         )
     }
 
-    pub(crate) fn summary(&self, uid: &str) -> Result<Value, AppError> {
+    pub(crate) fn summary(&self, session: &AuthSession) -> Result<Value, AppError> {
         let state = self
             .state
             .lock()
             .map_err(|_| AppError::internal("flash-sale state lock poisoned"))?;
-        Ok(render_summary(uid, &state))
+        Ok(render_summary(session, &state))
+    }
+
+    fn require_session<'a>(&self, request: &'a AppApiRequest) -> Result<&'a AuthSession, AppError> {
+        let session = request.session.as_ref().ok_or_else(|| {
+            if self.allow_anonymous_app_access {
+                AppError::internal(
+                    "flash-sale anonymous identity was not resolved by the gateway",
+                )
+            } else {
+                AppError::unauthorized("missing bearer token")
+            }
+        })?;
+
+        if session.user.app != "flash-sale" {
+            return Err(AppError::unauthorized(
+                "flash-sale queue requires a flash-sale session",
+            ));
+        }
+
+        Ok(session)
     }
 }
 
@@ -289,13 +355,13 @@ impl ModuleRuntime for FlashSaleModule {
             }
             "flashsale.stock.read" => {
                 let state = self.state.lock().map_err(AppError::lock_runtime)?;
-                Ok(json!(state.stock))
+                Ok(json!(state.redis.stock))
             }
             "flashsale.stock.decr" => {
                 let mut state = self.state.lock().map_err(AppError::lock_runtime)?;
                 let amount = body.amount.unwrap_or(1);
-                state.stock = (state.stock - amount).max(0);
-                Ok(json!(state.stock))
+                state.redis.stock = (state.redis.stock - amount).max(0);
+                Ok(json!(state.redis.stock))
             }
             "flashsale.wallet.read" => {
                 let state = self.state.lock().map_err(AppError::lock_runtime)?;
@@ -304,7 +370,7 @@ impl ModuleRuntime for FlashSaleModule {
                     .as_ref()
                     .and_then(Value::as_str)
                     .ok_or_else(|| RuntimeError::invalid_request("wallet key is missing"))?;
-                Ok(json!(state.wallets.get(key).copied().unwrap_or(0)))
+                Ok(json!(state.redis.wallets.get(key).copied().unwrap_or(0)))
             }
             "flashsale.orders.read-mine" => {
                 let state = self.state.lock().map_err(AppError::lock_runtime)?;
@@ -313,6 +379,7 @@ impl ModuleRuntime for FlashSaleModule {
                 let limit = value_as_i64(body.values.get(2), "limit").unwrap_or(10) as usize;
 
                 let rows: Vec<Value> = state
+                    .db
                     .orders
                     .iter()
                     .filter(|order| order.uid == uid && order.sku == sku)
@@ -335,9 +402,9 @@ impl ModuleRuntime for FlashSaleModule {
                 let sku = value_as_string(body.values.get(1), "sku")?;
                 let quantity = value_as_i64(body.values.get(2), "quantity")?;
                 let status = value_as_string(body.values.get(3), "status")?;
-                let next_index = state.orders.len() + 1;
+                let next_index = state.db.orders.len() + 1;
 
-                state.orders.insert(
+                state.db.orders.insert(
                     0,
                     FlashSaleOrderConfig {
                         id: format!("ord_{next_index:04}"),
@@ -365,14 +432,8 @@ impl AppApiHandler for FlashSaleModule {
     }
 
     fn handle(&self, request: AppApiRequest) -> Result<Value, AppError> {
-        let session = request
-            .session
-            .ok_or_else(|| AppError::unauthorized("missing bearer token"))?;
-        if session.user.app != "flash-sale" {
-            return Err(AppError::unauthorized(
-                "flash-sale queue requires a flash-sale session",
-            ));
-        }
+        let session = self.require_session(&request)?.clone();
+        let uid = session.user.uid.as_str();
 
         match (request.method.as_str(), request.path.as_str()) {
             ("POST", "/apps/flash-sale/queue") => {
@@ -390,13 +451,13 @@ impl AppApiHandler for FlashSaleModule {
                         .ok_or_else(|| {
                             AppError::invalid_request("missing or invalid field `quantity`")
                         })?;
-                self.enqueue_purchase(&session.user, sku, quantity)
+                self.enqueue_purchase(&session, sku, quantity)
             }
-            ("GET", "/apps/flash-sale/summary") => self.summary(&session.user.uid),
-            ("GET", "/apps/flash-sale/queue") => Ok(self.list_tickets(&session.user.uid)),
+            ("GET", "/apps/flash-sale/summary") => self.summary(&session),
+            ("GET", "/apps/flash-sale/queue") => Ok(self.list_tickets(uid)),
             ("GET", path) if path.starts_with("/apps/flash-sale/queue/") => {
                 let ticket_id = path.trim_start_matches("/apps/flash-sale/queue/");
-                self.ticket_details(&session.user.uid, ticket_id)
+                self.ticket_details(uid, ticket_id)
             }
             _ => Err(AppError::not_found("route not found")),
         }
@@ -417,12 +478,20 @@ fn render_ticket(ticket: &QueueTicket, state: &FlashSaleState) -> Value {
         "orderId": ticket.order_id,
         "message": ticket.message,
         "createdAt": ticket.created_at,
-        "updatedAt": ticket.updated_at
+        "updatedAt": ticket.updated_at,
+        "steps": ticket.steps,
+        "runtime": {
+            "queueCluster": "flashsale.workflow-workers",
+            "redisCluster": "flashsale.stock-redis",
+            "dbCluster": "flashsale.orders-sql"
+        }
     })
 }
 
-fn render_summary(uid: &str, state: &FlashSaleState) -> Value {
+fn render_summary(session: &AuthSession, state: &FlashSaleState) -> Value {
+    let uid = session.user.uid.as_str();
     let orders: Vec<Value> = state
+        .db
         .orders
         .iter()
         .filter(|order| order.uid == uid && order.sku == state.item.sku)
@@ -435,8 +504,24 @@ fn render_summary(uid: &str, state: &FlashSaleState) -> Value {
             })
         })
         .collect();
+    let wallet = state
+        .redis
+        .wallets
+        .get(&wallet_key(uid))
+        .copied()
+        .unwrap_or(state.default_wallet_balance);
 
     json!({
+        "identity": {
+            "app": session.user.app,
+            "uid": session.user.uid,
+            "tenantId": session.user.tenant_id,
+            "displayName": session.user.display_name,
+            "email": session.user.email,
+            "roles": session.user.roles,
+            "anonymous": session.user.anonymous,
+            "sessionKind": session.kind.as_str(),
+        },
         "item": {
             "id": state.item.id,
             "sku": state.item.sku,
@@ -444,9 +529,22 @@ fn render_summary(uid: &str, state: &FlashSaleState) -> Value {
             "price": state.item.price,
             "startsAt": state.item.starts_at
         },
-        "stock": state.stock,
-        "wallet": state.wallets.get(&format!("{uid}_wallet")).copied().unwrap_or(0),
-        "orders": orders
+        "stock": state.redis.stock,
+        "wallet": wallet,
+        "orders": orders,
+        "runtime": {
+            "readPath": [
+                { "role": "redis", "action": "read-stock", "cluster": "flashsale.stock-redis" },
+                { "role": "redis", "action": "read-wallet", "cluster": "flashsale.stock-redis" },
+                { "role": "db", "action": "read-orders", "cluster": "flashsale.orders-sql" }
+            ],
+            "writePath": [
+                { "role": "worker", "action": "queue", "cluster": "flashsale.workflow-workers" },
+                { "role": "redis", "action": "reserve-stock", "cluster": "flashsale.stock-redis" },
+                { "role": "db", "action": "insert-order", "cluster": "flashsale.orders-sql" },
+                { "role": "worker", "action": "complete", "cluster": "flashsale.workflow-workers" }
+            ]
+        }
     })
 }
 
@@ -457,6 +555,7 @@ impl QueueTicket {
             QueueStatus::Processing => Some(1),
             QueueStatus::Queued => Some(
                 state
+                    .worker
                     .tickets
                     .values()
                     .filter(|ticket| {
@@ -480,6 +579,156 @@ impl QueueStatus {
     }
 }
 
+fn process_ticket(state: Arc<Mutex<FlashSaleState>>, queue: FlashSaleQueueConfig, ticket_id: &str, initial_position: u64) {
+    let queue_delay =
+        Duration::from_millis(initial_position.saturating_sub(1) * queue.position_delay_ms);
+    thread::sleep(queue_delay);
+
+    {
+        let mut state = match state.lock() {
+            Ok(state) => state,
+            Err(_) => return,
+        };
+        if let Some(ticket) = state.worker.tickets.get_mut(ticket_id) {
+            ticket.status = QueueStatus::Processing;
+            ticket.message = "Worker is reserving stock and charging the wallet".into();
+            ticket.updated_at = now_label();
+            ticket.steps.push(step(
+                "worker",
+                "claim",
+                "Worker claimed the queued reservation".into(),
+                ticket.updated_at.clone(),
+            ));
+        } else {
+            return;
+        }
+    }
+
+    thread::sleep(Duration::from_millis(queue.processing_delay_ms));
+
+    let mut state = match state.lock() {
+        Ok(state) => state,
+        Err(_) => return,
+    };
+    let Some((uid, quantity, sku)) = state
+        .worker
+        .tickets
+        .get(ticket_id)
+        .map(|ticket| (ticket.uid.clone(), ticket.quantity, ticket.sku.clone()))
+    else {
+        return;
+    };
+
+    let wallet = ensure_wallet_balance(&mut state, &uid);
+    let price = state.item.price * quantity;
+    let now = now_label();
+    let next_index = state.db.orders.len() + 1;
+    let result = if state.redis.stock < quantity {
+        Err("Sold out before your turn reached the head of the queue".to_string())
+    } else if wallet < price {
+        Err("Wallet balance was too low when the worker attempted settlement".to_string())
+    } else {
+        state.redis.stock -= quantity;
+        if let Some(balance) = state.redis.wallets.get_mut(&wallet_key(&uid)) {
+            *balance -= price;
+        }
+
+        let order_id = format!("ord_{next_index:04}");
+        state.db.orders.insert(
+            0,
+            FlashSaleOrderConfig {
+                id: order_id.clone(),
+                uid: uid.clone(),
+                sku,
+                status: "queued-confirmed".into(),
+                quantity,
+                created_at: now.clone(),
+            },
+        );
+
+        Ok(order_id)
+    };
+
+    if let Some(ticket) = state.worker.tickets.get_mut(ticket_id) {
+        ticket.updated_at = now.clone();
+        ticket.steps.push(step(
+            "redis",
+            "read-wallet",
+            format!("Checked wallet for {}", ticket.uid),
+            now.clone(),
+        ));
+        ticket.steps.push(step(
+            "redis",
+            "read-stock",
+            "Checked remaining sale inventory".into(),
+            now.clone(),
+        ));
+        match result {
+            Ok(order_id) => {
+                ticket.status = QueueStatus::Completed;
+                ticket.order_id = Some(order_id);
+                ticket.message = "Worker reserved stock, charged wallet, and inserted the order".into();
+                ticket.steps.push(step(
+                    "redis",
+                    "reserve-stock",
+                    "Reserved stock in the hot counter".into(),
+                    now.clone(),
+                ));
+                ticket.steps.push(step(
+                    "redis",
+                    "debit-wallet",
+                    "Debited the anonymous buyer wallet".into(),
+                    now.clone(),
+                ));
+                ticket.steps.push(step(
+                    "db",
+                    "insert-order",
+                    "Inserted the final order row".into(),
+                    now.clone(),
+                ));
+                ticket.steps.push(step(
+                    "worker",
+                    "complete",
+                    "Marked the queue ticket as completed".into(),
+                    now,
+                ));
+            }
+            Err(message) => {
+                ticket.status = QueueStatus::Failed;
+                ticket.message = message;
+                ticket.steps.push(step(
+                    "worker",
+                    "fail",
+                    "Worker marked the reservation as failed".into(),
+                    now,
+                ));
+            }
+        }
+    }
+}
+
+fn ensure_wallet_balance(state: &mut FlashSaleState, uid: &str) -> i64 {
+    let balance = state
+        .redis
+        .wallets
+        .entry(wallet_key(uid))
+        .or_insert(state.default_wallet_balance);
+    *balance
+}
+
+fn wallet_key(uid: &str) -> String {
+    format!("{uid}_wallet")
+}
+
+fn step(role: &str, action: &str, detail: String, at: String) -> CollaborationStep {
+    CollaborationStep {
+        role: role.into(),
+        action: action.into(),
+        detail,
+        at,
+    }
+}
+
 fn default_queue_position_delay_ms() -> u64 {
     350
 }
@@ -492,77 +741,115 @@ fn default_flash_sale_sku() -> String {
     "camera-pro".into()
 }
 
-fn process_ticket(
-    state: Arc<Mutex<FlashSaleState>>,
-    queue: FlashSaleQueueConfig,
-    ticket_id: &str,
-    uid: &str,
-    initial_position: u64,
-) {
-    let queue_delay =
-        Duration::from_millis(initial_position.saturating_sub(1) * queue.position_delay_ms);
-    thread::sleep(queue_delay);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::local::{InMemoryAuthService, InMemoryUserConfig};
+    use serde_json::json;
+    use std::{thread, time::Duration};
 
-    {
-        let mut state = match state.lock() {
-            Ok(state) => state,
-            Err(_) => return,
-        };
-        if let Some(ticket) = state.tickets.get_mut(ticket_id) {
-            ticket.status = QueueStatus::Processing;
-            ticket.message = "Reserving stock and creating order".into();
-            ticket.updated_at = now_label();
-        } else {
-            return;
+    fn seed_user() -> InMemoryUserConfig {
+        InMemoryUserConfig {
+            app: "flash-sale".into(),
+            uid: "u_2001".into(),
+            tenant_id: "tenant_flashsale".into(),
+            email: "buyer@flash-sale.demo".into(),
+            password: "demo123".into(),
+            display_name: "Flash Buyer".into(),
+            roles: vec!["buyer".into()],
         }
     }
 
-    thread::sleep(Duration::from_millis(queue.processing_delay_ms));
+    fn anonymous_session() -> AuthSession {
+        InMemoryAuthService::from_user_configs(vec![seed_user()])
+            .ensure_anonymous_session("flash-sale")
+            .expect("anonymous flash-sale session")
+    }
 
-    let mut state = match state.lock() {
-        Ok(state) => state,
-        Err(_) => return,
-    };
-    let Some((quantity, sku)) = state
-        .tickets
-        .get(ticket_id)
-        .map(|ticket| (ticket.quantity, ticket.sku.clone()))
-    else {
-        return;
-    };
+    #[test]
+    fn flash_sale_summary_uses_resolved_anonymous_identity() {
+        let module = FlashSaleModule::new();
+        let session = anonymous_session();
+        let response = module
+            .handle(AppApiRequest {
+                method: "GET".into(),
+                path: "/apps/flash-sale/summary".into(),
+                body: None,
+                session: Some(session.clone()),
+            })
+            .expect("anonymous summary");
 
-    let next_index = state.orders.len() + 1;
-    let result = if state.stock >= quantity {
-        state.stock -= quantity;
-        let order_id = format!("ord_{next_index:04}");
-        state.orders.insert(
-            0,
-            FlashSaleOrderConfig {
-                id: order_id.clone(),
-                uid: uid.into(),
-                sku,
-                status: "queued-confirmed".into(),
-                quantity,
-                created_at: now_label(),
-            },
-        );
-        Ok(order_id)
-    } else {
-        Err("Sold out before your turn reached the head of the queue".to_string())
-    };
+        assert_eq!(response["identity"]["uid"], session.user.uid);
+        assert_eq!(response["identity"]["anonymous"], true);
+        assert_eq!(response["wallet"], 1280);
+        assert_eq!(response["runtime"]["readPath"][0]["role"], "redis");
+    }
 
-    if let Some(ticket) = state.tickets.get_mut(ticket_id) {
-        ticket.updated_at = now_label();
-        match result {
-            Ok(order_id) => {
-                ticket.status = QueueStatus::Completed;
-                ticket.order_id = Some(order_id);
-                ticket.message = "Reservation completed and order inserted".into();
-            }
-            Err(message) => {
-                ticket.status = QueueStatus::Failed;
-                ticket.message = message;
-            }
-        }
+    #[test]
+    fn flash_sale_queue_purchase_tracks_worker_steps() {
+        let module = FlashSaleModule::new();
+        let session = anonymous_session();
+        let ticket = module
+            .handle(AppApiRequest {
+                method: "POST".into(),
+                path: "/apps/flash-sale/queue".into(),
+                body: Some(json!({
+                    "sku": "camera-pro",
+                    "quantity": 1
+                })),
+                session: Some(session.clone()),
+            })
+            .expect("anonymous queue");
+
+        let ticket_id = ticket["ticketId"].as_str().expect("ticket id");
+        thread::sleep(Duration::from_millis(1600));
+
+        let settled = module
+            .handle(AppApiRequest {
+                method: "GET".into(),
+                path: format!("/apps/flash-sale/queue/{ticket_id}"),
+                body: None,
+                session: Some(session),
+            })
+            .expect("anonymous queue ticket");
+
+        assert!(settled["steps"]
+            .as_array()
+            .is_some_and(|steps| steps.iter().any(|step| step["role"] == "worker")));
+        assert!(matches!(
+            settled["status"].as_str(),
+            Some("completed") | Some("failed")
+        ));
+    }
+
+    #[test]
+    fn queue_tickets_are_scoped_to_the_resolved_identity() {
+        let module = FlashSaleModule::new();
+        let first_session = anonymous_session();
+        let second_session = anonymous_session();
+        let ticket = module
+            .handle(AppApiRequest {
+                method: "POST".into(),
+                path: "/apps/flash-sale/queue".into(),
+                body: Some(json!({
+                    "sku": "camera-pro",
+                    "quantity": 1
+                })),
+                session: Some(first_session.clone()),
+            })
+            .expect("first queue");
+        let ticket_id = ticket["ticketId"].as_str().expect("ticket id");
+
+        let error = module
+            .handle(AppApiRequest {
+                method: "GET".into(),
+                path: format!("/apps/flash-sale/queue/{ticket_id}"),
+                body: None,
+                session: Some(second_session),
+            })
+            .expect_err("second anonymous identity should be rejected");
+
+        assert_eq!(error.status, 401);
+        assert!(error.message.contains("does not belong"));
     }
 }

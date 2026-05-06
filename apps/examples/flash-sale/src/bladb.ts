@@ -26,11 +26,40 @@ export interface OrderRecord {
   createdAt: string;
 }
 
+export interface RuntimeStage {
+  role: string;
+  action: string;
+  cluster?: string;
+}
+
+export interface FlashSaleIdentity {
+  app: string;
+  uid: string;
+  tenantId: string;
+  displayName: string;
+  email: string;
+  roles: string[];
+  anonymous: boolean;
+  sessionKind: "authenticated" | "anonymous";
+}
+
 export interface FlashSaleSummary {
+  identity: FlashSaleIdentity;
   item: SaleItemSummary;
   stock: number;
   wallet: number;
   orders: OrderRecord[];
+  runtime: {
+    readPath: RuntimeStage[];
+    writePath: RuntimeStage[];
+  };
+}
+
+export interface TicketStep {
+  role: string;
+  action: string;
+  detail: string;
+  at: string;
 }
 
 export interface QueueTicket {
@@ -43,19 +72,27 @@ export interface QueueTicket {
   message: string;
   createdAt: string;
   updatedAt: string;
+  steps: TicketStep[];
+  runtime: {
+    queueCluster: string;
+    redisCluster: string;
+    dbCluster: string;
+  };
 }
+
+const flashSaleRoutes = {
+  summary: appGet<FlashSaleSummary>("summary"),
+  queuePurchase: appPost<{ sku: string; quantity: number }, QueueTicket>("queue"),
+  queueHistory: appGet<QueueTicket[]>("queue"),
+  queueTicket: appGet<[string], QueueTicket>((ticketId) => `queue/${ticketId}`)
+};
 
 export const flashSaleModule = createBrowserAppModule({
   baseUrl: BLADB_URL,
   appName: "flash-sale",
   tokenKey: FLASH_SALE_TOKEN_KEY,
   sessionKey: FLASH_SALE_SESSION_KEY,
-  routes: {
-    summary: appGet<FlashSaleSummary>("summary"),
-    queuePurchase: appPost<{ sku: string; quantity: number }, QueueTicket>("queue"),
-    queueHistory: appGet<QueueTicket[]>("queue"),
-    queueTicket: appGet<[string], QueueTicket>((ticketId) => `queue/${ticketId}`)
-  }
+  routes: flashSaleRoutes
 });
 
 export const db = flashSaleModule.db;

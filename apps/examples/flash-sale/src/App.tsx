@@ -1,150 +1,16 @@
 import { useEffect, useState } from "react";
-import { type GatewaySessionState, useGatewaySession, useLiveValue, useMutation } from "@bladb/react";
-import { db, flashSaleApi, type FlashSaleSession, type QueueTicket } from "./bladb";
+import { useLiveValue, useMutation } from "@bladb/react";
+import { flashSaleApi, flashSaleUser, type FlashSaleSession, type QueueTicket } from "./bladb";
+import { ExampleSuiteNav } from "../../shared/ExampleSuiteNav";
 
 export default function App() {
-  const auth = useGatewaySession<FlashSaleSession>(db.user);
-
-  if (!auth.ready && !auth.session) {
-    return (
-      <main className="page auth-page">
-        <section className="hero">
-          <p className="eyebrow">High concurrency demo</p>
-          <h1>Flash Sale</h1>
-          <p className="lede">Restoring buyer session...</p>
-        </section>
-      </main>
-    );
-  }
-
-  if (!auth.session) {
-    return <FlashSaleAuth auth={auth} />;
-  }
-
-  return (
-    <FlashSaleDashboard
-      onLogout={auth.logout}
-      session={auth.session}
-    />
-  );
+  return <FlashSaleDashboard />;
 }
 
-function FlashSaleAuth({
-  auth
-}: {
-  auth: GatewaySessionState<FlashSaleSession>;
-}) {
-  const [loginEmail, setLoginEmail] = useState("buyer@flash-sale.demo");
-  const [loginPassword, setLoginPassword] = useState("demo123");
-  const [registerName, setRegisterName] = useState("New Buyer");
-  const [registerEmail, setRegisterEmail] = useState("new-buyer@flash-sale.demo");
-  const [registerPassword, setRegisterPassword] = useState("demo123");
-  const [error, setError] = useState<string | null>(null);
-
-  const login = useMutation(async () => {
-    return await auth.login({
-      app: "flash-sale",
-      email: loginEmail,
-      password: loginPassword
-    });
-  });
-
-  const register = useMutation(async () => {
-    return await auth.register({
-      app: "flash-sale",
-      email: registerEmail,
-      password: registerPassword,
-      displayName: registerName
-    });
-  });
-
-  const wrap = async (runner: () => Promise<unknown>) => {
-    setError(null);
-    try {
-      await runner();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unknown auth error");
-    }
-  };
-
-  return (
-    <main className="page auth-page">
-      <section className="hero">
-        <p className="eyebrow">High concurrency demo</p>
-        <h1>Flash Sale</h1>
-        <p className="lede">
-          Complete the buyer flow first: sign in, join the reservation queue, then poll for the
-          final order result without leaving the page.
-        </p>
-      </section>
-
-      <section className="auth-grid">
-        <article className="panel panel-accent">
-          <span className="label">Demo sign-in</span>
-          <h2>Login</h2>
-          <p className="muted">
-            Seed account: <code>buyer@flash-sale.demo</code> / <code>demo123</code>
-          </p>
-          <label className="field">
-            <span>Email</span>
-            <input onChange={(event) => setLoginEmail(event.target.value)} value={loginEmail} />
-          </label>
-          <label className="field">
-            <span>Password</span>
-            <input
-              onChange={(event) => setLoginPassword(event.target.value)}
-              type="password"
-              value={loginPassword}
-            />
-          </label>
-          <button className="primary" disabled={login.loading} onClick={() => void wrap(login.run)}>
-            {login.loading ? "Signing in..." : "Login"}
-          </button>
-        </article>
-
-        <article className="panel">
-          <span className="label">New buyer</span>
-          <h2>Register</h2>
-          <label className="field">
-            <span>Display name</span>
-            <input onChange={(event) => setRegisterName(event.target.value)} value={registerName} />
-          </label>
-          <label className="field">
-            <span>Email</span>
-            <input onChange={(event) => setRegisterEmail(event.target.value)} value={registerEmail} />
-          </label>
-          <label className="field">
-            <span>Password</span>
-            <input
-              onChange={(event) => setRegisterPassword(event.target.value)}
-              type="password"
-              value={registerPassword}
-            />
-          </label>
-          <button
-            className="primary secondary"
-            disabled={register.loading}
-            onClick={() => void wrap(register.run)}
-          >
-            {register.loading ? "Creating..." : "Register"}
-          </button>
-        </article>
-      </section>
-
-      {error ? <p className="banner banner-error">{error}</p> : null}
-    </main>
-  );
-}
-
-function FlashSaleDashboard({
-  session,
-  onLogout
-}: {
-  session: FlashSaleSession;
-  onLogout: () => void;
-}) {
+function FlashSaleDashboard() {
   const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
   const [settledTicketId, setSettledTicketId] = useState<string | null>(null);
+  const [session, setSession] = useState<FlashSaleSession | null>(() => flashSaleUser.read());
 
   const summary = useLiveValue(() => flashSaleApi.summary(), 2500, []);
 
@@ -166,6 +32,26 @@ function FlashSaleDashboard({
     void Promise.all([summary.refresh(), queueHistory.refresh()]);
   }, [queueHistory, queueStatus.data, settledTicketId, summary]);
 
+  useEffect(() => {
+    if (!summary.data) {
+      return;
+    }
+
+    let active = true;
+    void flashSaleUser
+      .me()
+      .then((nextSession) => {
+        if (active) {
+          setSession(nextSession);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, [summary.data?.identity.uid]);
+
   const purchase = useMutation(async () => {
     const sku = summary.data?.item.sku;
     if (!sku) {
@@ -181,22 +67,35 @@ function FlashSaleDashboard({
 
   return (
     <main className="page">
+      <ExampleSuiteNav currentApp="flash-sale" />
+
       <section className="hero hero-row">
         <div>
           <p className="eyebrow">High concurrency demo</p>
           <h1>Flash Sale</h1>
           <p className="lede">
-            Signed in as <strong>{session.user.displayName}</strong>. Purchases now go through a
-            queue worker flow instead of directly mutating stock from the button click.
+            Anonymous example mode is enabled. The gateway mints a cookie-backed identity, renews
+            its lease on each open, and lets `db.user.me()` restore the same browser identity
+            before the flash-sale worker flow continues.
           </p>
+          <div className="hero-notes">
+            <article className="hero-note">
+              <span>Read path</span>
+              <strong>`GET /apps/flash-sale/summary`</strong>
+              <p>One app-owned read returns identity, stock, wallet, recent orders, and the runtime collaboration path in a single response.</p>
+            </article>
+            <article className="hero-note">
+              <span>Session path</span>
+              <strong>`GET /users/me?app=flash-sale`</strong>
+              <p>After the summary request sets the cookie, `db.user.me()` resolves the same anonymous identity without a login form.</p>
+            </article>
+          </div>
         </div>
         <div className="session-card">
-          <span className="label">Buyer session</span>
-          <strong>{session.user.email}</strong>
-          <small>{session.user.uid}</small>
-          <button className="ghost" onClick={onLogout}>
-            Logout
-          </button>
+          <span className="label">Browser identity</span>
+          <strong>{session?.user.displayName ?? summary.data?.identity.displayName ?? "Resolving..."}</strong>
+          <small>{session?.user.email ?? summary.data?.identity.email ?? "cookie-backed anonymous identity"}</small>
+          <small>{summary.data?.identity.uid ?? "--"} / {summary.data?.identity.tenantId ?? "--"}</small>
         </div>
       </section>
 
@@ -221,9 +120,80 @@ function FlashSaleDashboard({
         </article>
 
         <article className="panel">
-          <span className="label">Session</span>
-          <p className="metric">{session.user.roles.join(", ")}</p>
-          <p className="muted">Tenant {session.user.tenantId}</p>
+          <span className="label">Runtime identity</span>
+          <p className="metric">{summary.data?.identity.anonymous ? "anonymous" : "member"}</p>
+          <p className="muted">
+            {summary.data?.identity.sessionKind ?? "--"} session for tenant {summary.data?.identity.tenantId ?? "--"}
+          </p>
+        </article>
+      </section>
+
+      <section className="grid">
+        <article className="panel">
+          <span className="label">What this page demonstrates</span>
+          <h2>Anonymous identity plus queue worker flow</h2>
+          <p className="muted">
+            The browser enters directly, gets a cookie-backed identity, restores it through
+            `db.user.me()`, then enqueues a purchase without ever showing a login screen.
+          </p>
+        </article>
+
+        <article className="panel">
+          <span className="label">Module path</span>
+          <h2>db + redis + worker collaboration</h2>
+          <p className="muted">
+            `GET /apps/flash-sale/summary` shows the redis and db read path. `POST /apps/flash-sale/queue`
+            hands work to the worker lane, which then coordinates redis reservation and db order insertion.
+          </p>
+        </article>
+
+        <article className="panel panel-code">
+          <span className="label">SDK shape</span>
+          <h2>How a frontend should think about it</h2>
+          <pre className="code-block">{`const summary = await flashSaleApi.summary()
+const me = await flashSaleUser.me()
+const ticket = await flashSaleApi.queuePurchase({ sku, quantity: 1 })
+const status = await flashSaleApi.queueTicket(ticket.ticketId)`}</pre>
+        </article>
+
+        <article className="panel">
+          <span className="label">Backend ownership</span>
+          <h2>What the browser does not control</h2>
+          <ul className="stack-list">
+            <li>The anonymous identity is minted and renewed by the trusted gateway, not the page.</li>
+            <li>Queue position and final order status are resolved by worker-side processing.</li>
+            <li>Stock, wallet, and order summaries are aggregated server-side before they reach the UI.</li>
+          </ul>
+        </article>
+      </section>
+
+      <section className="double-grid">
+        <article className="panel">
+          <span className="label">Read collaboration</span>
+          <div className="table">
+            {(summary.data?.runtime.readPath ?? []).map((stage) => (
+              <div className="row" key={`${stage.role}-${stage.action}`}>
+                <strong>{stage.role}</strong>
+                <span>{stage.action}</span>
+                <span>{stage.cluster ?? "--"}</span>
+                <span>summary</span>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel">
+          <span className="label">Write collaboration</span>
+          <div className="table">
+            {(summary.data?.runtime.writePath ?? []).map((stage) => (
+              <div className="row" key={`${stage.role}-${stage.action}`}>
+                <strong>{stage.role}</strong>
+                <span>{stage.action}</span>
+                <span>{stage.cluster ?? "--"}</span>
+                <span>queue</span>
+              </div>
+            ))}
+          </div>
         </article>
       </section>
 
@@ -232,8 +202,8 @@ function FlashSaleDashboard({
           <span className="label">Purchase</span>
           <h2>Queue reservation flow</h2>
           <p className="muted">
-            Login, join the queue, and poll the final status until the order is confirmed or sold
-            out.
+            Join the queue immediately, then poll the final status until the order is confirmed or
+            sold out.
           </p>
         </div>
         <button
@@ -258,6 +228,16 @@ function FlashSaleDashboard({
               <span>Position: {queueStatus.data.queuePosition ?? "done"}</span>
               <span>Order: {queueStatus.data.orderId ?? "--"}</span>
             </div>
+          </div>
+          <div className="table">
+            {queueStatus.data.steps.map((step) => (
+              <div className="row" key={`${step.at}-${step.role}-${step.action}`}>
+                <strong>{step.role}</strong>
+                <span>{step.action}</span>
+                <span>{step.detail}</span>
+                <time>{step.at}</time>
+              </div>
+            ))}
           </div>
         </section>
       ) : null}

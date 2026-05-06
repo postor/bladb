@@ -1,0 +1,10 @@
+cluster: flashsale.stock-redis
+topology: ../topology/flash-sale.topology.yaml
+nats:
+  url: nats://nats.bladb.svc.cluster.local:4222
+serve:
+  bindAddr: 0.0.0.0:9001
+adapter:
+  runtime: redis
+  endpoint: redis://redis.flashsale.svc.cluster.local:6379
+  namespace: flashsale
