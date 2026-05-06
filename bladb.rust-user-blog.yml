@@ -1,0 +1,100 @@
+mode: standalone
+
+modules:
+  official:
+    users:
+      enabled: true
+      session:
+        transport: launcher-http
+        launcherUrl: http://127.0.0.1:8791
+      jwt:
+        algorithm: HS256
+        secret: ${BLADB_JWT_SECRET}
+      password:
+        algorithm: argon2id
+      storage:
+        engine: mysql
+        mysql:
+          dsn: ${BLADB_USERS_MYSQL_DSN}
+        mongodb:
+          uri: ${BLADB_USERS_MONGODB_URI}
+          database: bladb_users
+      mailer:
+        provider: smtp
+        from: no-reply@example.com
+        smtp:
+          host: smtp.example.com
+          port: 587
+          username: ${BLADB_SMTP_USER}
+          password: ${BLADB_SMTP_PASS}
+      features:
+        register: true
+        login: true
+        verifyEmail: false
+        resetPassword: false
+
+gateway:
+  runtimes:
+    - name: blog
+      policy: apps/examples/blog/policies/blog.policy.yaml
+      topology: apps/examples/blog/topology/blog.topology.yaml
+      defaultAuth:
+        uid: u_5001
+        tenantId: tenant_blog
+        roles:
+          - editor
+        permissionVersion: v1
+
+  auth:
+    users:
+      - app: blog
+        uid: u_5001
+        tenantId: tenant_blog
+        email: editor@blog.demo
+        password: demo123
+        displayName: Blog Editor
+        roles:
+          - editor
+      - app: blog
+        uid: u_5002
+        tenantId: tenant_blog
+        email: guest@blog.demo
+        password: demo123
+        displayName: Guest Writer
+        roles:
+          - editor
+
+  modules:
+    blog:
+      allowAnonymousAppAccess: true
+      posts:
+        - id: post_0001
+          tenantId: tenant_blog
+          authorUid: u_5001
+          authorName: Blog Editor
+          title: Welcome to the Bladb blog example
+          slug: welcome-to-the-bladb-blog-example
+          summary: A seeded article that demonstrates list and mine flows.
+          body: This example shows how db.user and db.mongo can power a small content workflow.
+          published: true
+          createdAt: 2026-05-06T08:00:00Z
+        - id: post_0002
+          tenantId: tenant_blog
+          authorUid: u_5002
+          authorName: Guest Writer
+          title: How another author appears in the plaza
+          slug: how-another-author-appears-in-the-plaza
+          summary: A seeded second-author article so the homepage plaza is not single-owner.
+          body: Readers should see more than one voice in the shared square, while edit rights still stay bound to the owning author.
+          published: true
+          createdAt: 2026-05-06T10:15:00Z
+        - id: post_0003
+          tenantId: tenant_blog
+          authorUid: u_5001
+          authorName: Blog Editor
+          title: Drafting with tenant-aware storage
+          slug: drafting-with-tenant-aware-storage
+          summary: A second post to make the public list feel real.
+          body: The local runtime keeps ownership, tenancy, and ordering inside the trusted path.
+          published: true
+          createdAt: 2026-05-06T09:30:00Z

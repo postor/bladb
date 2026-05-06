@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import test from "node:test";
 import {
   EXAMPLE_STACK_STATE_PATH,
@@ -11,6 +12,7 @@ import {
 } from "../lib/example-stack.mjs";
 
 await clearExampleStackState();
+const tmpDir = path.dirname(EXAMPLE_STACK_STATE_PATH);
 
 test("resolveExampleStackUrls falls back to local defaults", () => {
   assert.deepEqual(resolveExampleStackUrls({}), {
@@ -167,6 +169,42 @@ test("resolveExampleStackPorts rejects an explicitly configured busy port", asyn
   );
 });
 
+test("resolveExampleStackPorts skips fetch-restricted browser ports when auto-assigning", async () => {
+  const busyPorts = new Set();
+  for (let port = 4172; port <= 4189; port += 1) {
+    busyPorts.add(port);
+  }
+
+  assert.deepEqual(
+    await resolveExampleStackPorts({
+      env: {},
+      isPortBusy: async (port) => busyPorts.has(port),
+    }),
+    {
+      gateway: 8787,
+      ros2Backend: 8080,
+      portal: 4191,
+      flashSale: 4192,
+      blog: 4193,
+      iot: 4194,
+      ros2: 4195,
+      userModuleDemo: 4196,
+    },
+  );
+});
+
+test("resolveExampleStackPorts rejects an explicitly configured fetch-restricted port", async () => {
+  await assert.rejects(
+    resolveExampleStackPorts({
+      env: {
+        BLADB_ROS2_PORT: "4190",
+      },
+      isPortBusy: async () => false,
+    }),
+    /BLADB_ROS2_PORT uses a restricted browser\/fetch port on 127\.0\.0\.1:4190/,
+  );
+});
+
 test("parseDockerComposePort extracts host port from docker compose output", () => {
   assert.equal(
     parseDockerComposePort("0.0.0.0:49152"),
@@ -180,5 +218,16 @@ test("parseDockerComposePort extracts host port from docker compose output", () 
 
 test.after(async () => {
   await clearExampleStackState();
-  await rm(".tmp", { recursive: true, force: true });
+  try {
+    await rm(tmpDir, { recursive: true, force: false, maxRetries: 0 });
+  } catch (error) {
+    if (
+      error?.code !== "ENOTEMPTY" &&
+      error?.code !== "ENOENT" &&
+      error?.code !== "EBUSY" &&
+      error?.code !== "EPERM"
+    ) {
+      throw error;
+    }
+  }
 });

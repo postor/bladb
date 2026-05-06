@@ -1,7 +1,7 @@
 use bladb_core::protocol::{GatewayFailure, GatewayRequest, GatewaySuccess, ResponseMeta};
 use bladb_gateway::{
-    load_gateway_startup, GatewayStartup, IotSubscription, LocalGatewayApp, Ros2Subscription,
-    SessionCookie,
+    default_http_agent, load_gateway_startup, GatewayStartup, IotSubscription, LocalGatewayApp,
+    Ros2Subscription, SessionCookie,
 };
 use serde_json::{json, Value};
 use std::{
@@ -133,19 +133,32 @@ fn handle_client(mut stream: TcpStream, state: &Arc<LocalGatewayApp>) -> Result<
     }
 
     let response = match (request.method.as_str(), path.as_str()) {
-        ("GET", "/health") => http_json(StatusCode::Ok, json!({ "ok": true }), origin.as_deref(), vec![]),
+        ("GET", "/health") => http_json(
+            StatusCode::Ok,
+            json!({ "ok": true }),
+            origin.as_deref(),
+            vec![],
+        ),
         ("GET", "/topology") => http_json(
             StatusCode::Ok,
             json!({ "ok": true, "data": state.topology_snapshot() }),
             origin.as_deref(),
             vec![],
         ),
-        ("POST", "/execute") => handle_gateway_request(request.body, |gateway_request| {
-            state.handle_execute_for_token(gateway_request, bearer_token.as_deref())
-        }, origin.as_deref())?,
-        ("POST", "/route") => handle_gateway_request(request.body, |gateway_request| {
-            state.inspect_request_for_token(gateway_request, bearer_token.as_deref())
-        }, origin.as_deref())?,
+        ("POST", "/execute") => handle_gateway_request(
+            request.body,
+            |gateway_request| {
+                state.handle_execute_for_token(gateway_request, bearer_token.as_deref())
+            },
+            origin.as_deref(),
+        )?,
+        ("POST", "/route") => handle_gateway_request(
+            request.body,
+            |gateway_request| {
+                state.inspect_request_for_token(gateway_request, bearer_token.as_deref())
+            },
+            origin.as_deref(),
+        )?,
         ("POST", "/auth/login") | ("POST", "/users/login") => {
             handle_json_body(request.body, origin.as_deref(), |payload| {
                 let app = required_string(&payload, "app")?;
@@ -181,7 +194,8 @@ fn handle_client(mut stream: TcpStream, state: &Arc<LocalGatewayApp>) -> Result<
         }
         ("GET", "/auth/me") | ("GET", "/users/me") => {
             let app = request.query_param("app");
-            let cookie_token = app.and_then(|value| request.cookie(&SessionCookie::cookie_name_for_app(value)));
+            let cookie_token =
+                app.and_then(|value| request.cookie(&SessionCookie::cookie_name_for_app(value)));
             match state.user_me_http(app, bearer_token.as_deref(), cookie_token) {
                 Ok(result) => http_json(
                     StatusCode::Ok,
@@ -194,7 +208,8 @@ fn handle_client(mut stream: TcpStream, state: &Arc<LocalGatewayApp>) -> Result<
         }
         ("POST", "/auth/logout") | ("POST", "/users/logout") => {
             let app = request.query_param("app");
-            let cookie_token = app.and_then(|value| request.cookie(&SessionCookie::cookie_name_for_app(value)));
+            let cookie_token =
+                app.and_then(|value| request.cookie(&SessionCookie::cookie_name_for_app(value)));
             match state.user_logout_http(app, bearer_token.as_deref(), cookie_token) {
                 Ok(result) => http_json(
                     StatusCode::Ok,
@@ -574,7 +589,11 @@ fn http_json(
     )
 }
 
-fn http_empty(status: StatusCode, origin: Option<&str>, extra_headers: Vec<(String, String)>) -> String {
+fn http_empty(
+    status: StatusCode,
+    origin: Option<&str>,
+    extra_headers: Vec<(String, String)>,
+) -> String {
     http_response(status, None, &[], origin, extra_headers)
 }
 
@@ -587,7 +606,7 @@ fn http_response(
 ) -> String {
     let allow_origin = origin.unwrap_or("*");
     let mut response = format!(
-        "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: {}\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Headers: content-type, authorization\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nConnection: close\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: {}\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Headers: content-type, authorization\r\nAccess-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS\r\nConnection: close\r\n",
         status.code(),
         status.reason(),
         body.len(),
@@ -610,7 +629,7 @@ fn http_response(
 fn stream_response_headers(origin: Option<&str>) -> String {
     let allow_origin = origin.unwrap_or("*");
     format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\nAccess-Control-Allow-Origin: {allow_origin}\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Headers: content-type, authorization\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n\r\n"
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\nAccess-Control-Allow-Origin: {allow_origin}\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Headers: content-type, authorization\r\nAccess-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS\r\n\r\n"
     )
 }
 
@@ -752,9 +771,7 @@ fn stream_ros2_subscription(
     origin: Option<&str>,
 ) -> Result<(), String> {
     stream
-        .write_all(
-            stream_response_headers(origin).as_bytes(),
-        )
+        .write_all(stream_response_headers(origin).as_bytes())
         .map_err(|error| format!("failed to write stream headers: {error}"))?;
 
     match subscription {
@@ -806,12 +823,12 @@ fn stream_ros2_subscription(
                             })?;
                     }
                     Err(RecvTimeoutError::Timeout) => {
-                        stream
-                            .write_all(b": keepalive\n\n")
-                            .map_err(|error| format!("failed to write stream heartbeat: {error}"))?;
-                        stream
-                            .flush()
-                            .map_err(|error| format!("failed to flush stream heartbeat: {error}"))?;
+                        stream.write_all(b": keepalive\n\n").map_err(|error| {
+                            format!("failed to write stream heartbeat: {error}")
+                        })?;
+                        stream.flush().map_err(|error| {
+                            format!("failed to flush stream heartbeat: {error}")
+                        })?;
                     }
                     Err(RecvTimeoutError::Disconnected) => break,
                 }
@@ -827,7 +844,10 @@ fn stream_ros2_subscription(
                 "stream.lifecycle source=gateway module=ros2 phase=open mode=proxy url={}",
                 url
             );
-            let response = ureq::get(&url)
+            let agent = default_http_agent()
+                .map_err(|error| format!("failed to build HTTP client: {error}"))?;
+            let response = agent
+                .get(&url)
                 .call()
                 .map_err(|error| {
                     eprintln!(
@@ -895,9 +915,7 @@ fn stream_iot_subscription(
     origin: Option<&str>,
 ) -> Result<(), String> {
     stream
-        .write_all(
-            stream_response_headers(origin).as_bytes(),
-        )
+        .write_all(stream_response_headers(origin).as_bytes())
         .map_err(|error| format!("failed to write stream headers: {error}"))?;
 
     match subscription {
@@ -947,12 +965,12 @@ fn stream_iot_subscription(
                             })?;
                     }
                     Err(RecvTimeoutError::Timeout) => {
-                        stream
-                            .write_all(b": keepalive\n\n")
-                            .map_err(|error| format!("failed to write stream heartbeat: {error}"))?;
-                        stream
-                            .flush()
-                            .map_err(|error| format!("failed to flush stream heartbeat: {error}"))?;
+                        stream.write_all(b": keepalive\n\n").map_err(|error| {
+                            format!("failed to write stream heartbeat: {error}")
+                        })?;
+                        stream.flush().map_err(|error| {
+                            format!("failed to flush stream heartbeat: {error}")
+                        })?;
                     }
                     Err(RecvTimeoutError::Disconnected) => break,
                 }
@@ -993,14 +1011,18 @@ fn run_ros2_pub(args: &[String]) -> Result<(), String> {
     let body: Value = serde_json::from_str(&body_source)
         .map_err(|error| format!("invalid publish json body: {error}"))?;
 
-    let response = ureq::post(&format!(
+    let url = format!(
         "{}/apps/ros2-bridge/messages",
         gateway_url.trim_end_matches('/')
-    ))
-    .set("authorization", &format!("Bearer {token}"))
-    .set("content-type", "application/json")
-    .send_string(&body.to_string())
-    .map_err(|error| format!("ros2 pub request failed: {error}"))?;
+    );
+    let agent =
+        default_http_agent().map_err(|error| format!("failed to build HTTP client: {error}"))?;
+    let response = agent
+        .post(&url)
+        .set("authorization", &format!("Bearer {token}"))
+        .set("content-type", "application/json")
+        .send_string(&body.to_string())
+        .map_err(|error| format!("ros2 pub request failed: {error}"))?;
     let value: Value = serde_json::from_reader(response.into_reader())
         .map_err(|error| format!("failed to parse ros2 pub response: {error}"))?;
     println!(
@@ -1027,7 +1049,10 @@ fn run_ros2_sub(args: &[String]) -> Result<(), String> {
         topic_name
     );
 
-    let response = ureq::get(&url)
+    let agent =
+        default_http_agent().map_err(|error| format!("failed to build HTTP client: {error}"))?;
+    let response = agent
+        .get(&url)
         .set("authorization", &format!("Bearer {token}"))
         .call()
         .map_err(|error| format!("ros2 sub request failed: {error}"))?;

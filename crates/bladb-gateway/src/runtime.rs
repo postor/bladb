@@ -74,6 +74,14 @@ impl RuntimeError {
         }
     }
 
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self {
+            status: 403,
+            code: ErrorCode::PolicyDenied,
+            message: message.into(),
+        }
+    }
+
     pub fn internal(message: impl Into<String>) -> Self {
         Self {
             status: 500,

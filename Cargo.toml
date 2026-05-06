@@ -2,6 +2,8 @@
 members = [
     "crates/bladb-core",
     "crates/bladb-gateway",
+    "crates/bladb-server",
+    "crates/rust-user-service",
     "crates/bladb-module-runtime",
     "crates/bladb-worker-runtime",
 ]

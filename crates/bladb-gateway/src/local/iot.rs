@@ -334,7 +334,9 @@ impl ModuleRuntime for IotModule {
                 let telemetry = state
                     .telemetry_latest
                     .get(device_id)
-                    .filter(|telemetry| telemetry.owner_uid == uid && telemetry.tenant_id == tenant_id)
+                    .filter(|telemetry| {
+                        telemetry.owner_uid == uid && telemetry.tenant_id == tenant_id
+                    })
                     .ok_or_else(|| RuntimeError::not_found("telemetry record not found"))?;
 
                 Ok(json!({
@@ -378,7 +380,9 @@ impl ModuleRuntime for IotModule {
                             && device.owner_uid == uid
                             && device.tenant_id == tenant_id
                     })
-                    .ok_or_else(|| RuntimeError::not_found("device not found for current viewer"))?;
+                    .ok_or_else(|| {
+                        RuntimeError::not_found("device not found for current viewer")
+                    })?;
                 let expected_topic =
                     format!("tenant/{}/devices/{}/commands", device.tenant_id, device.id);
                 if topic != expected_topic {
@@ -501,18 +505,14 @@ impl AppApiHandler for IotModule {
                 let device = state
                     .devices
                     .iter()
-                    .find(|device| device.id == device_id && self.can_access_device(device, session))
+                    .find(|device| {
+                        device.id == device_id && self.can_access_device(device, session)
+                    })
                     .ok_or_else(|| AppError::not_found("device not found for current viewer"))?;
                 let topic = format!("tenant/{}/devices/{}/commands", device.tenant_id, device.id);
 
-                Self::publish_command_record(
-                    &mut state,
-                    device_id,
-                    &topic,
-                    action,
-                    issued_by,
-                )
-                .map_err(AppError::from)
+                Self::publish_command_record(&mut state, device_id, &topic, action, issued_by)
+                    .map_err(AppError::from)
             }
             _ => Err(AppError::not_found(format!(
                 "unsupported app api route {} {}",
@@ -564,7 +564,10 @@ mod tests {
     fn iot_module_publish_pushes_to_matching_device_subscribers() {
         let module = IotModule::new();
         let subscription = module
-            .open_command_stream(Some(&session()), "/apps/iot-realtime/commands/device-001/stream")
+            .open_command_stream(
+                Some(&session()),
+                "/apps/iot-realtime/commands/device-001/stream",
+            )
             .expect("open iot stream")
             .expect("iot local stream");
 
@@ -599,7 +602,10 @@ mod tests {
     fn iot_module_does_not_push_to_other_device_subscribers() {
         let module = IotModule::new();
         let subscription = module
-            .open_command_stream(Some(&session()), "/apps/iot-realtime/commands/device-002/stream")
+            .open_command_stream(
+                Some(&session()),
+                "/apps/iot-realtime/commands/device-002/stream",
+            )
             .expect("open iot stream")
             .expect("iot local stream");
 
@@ -654,7 +660,9 @@ mod tests {
                 session: Some(first_session),
             })
             .expect("anonymous command history");
-        let history = response.as_array().expect("anonymous command history array");
+        let history = response
+            .as_array()
+            .expect("anonymous command history array");
         assert_eq!(history.len(), 1);
         assert_eq!(history[0]["issuedBy"], "anon_iot_realtime_3000");
 
@@ -666,10 +674,7 @@ mod tests {
                 session: Some(second_session),
             })
             .expect("other anonymous command history");
-        assert_eq!(
-            other_response.as_array().map(Vec::len),
-            Some(0),
-        );
+        assert_eq!(other_response.as_array().map(Vec::len), Some(0),);
     }
 
     #[test]

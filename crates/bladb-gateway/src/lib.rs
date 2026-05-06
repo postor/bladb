@@ -1,3 +1,4 @@
+mod http_client;
 pub mod local;
 pub mod routing;
 pub mod runtime;
@@ -12,6 +13,7 @@ use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use thiserror::Error;
 
+pub use http_client::{default_http_agent, http_agent_with_timeouts};
 pub use local::{
     AppError, FlashSaleModule, FlashSaleModuleConfig, GatewayRuntimeConfig, InMemoryAuthService,
     InMemoryUserConfig, IotModule, IotModuleConfig, IotSubscription, LocalGatewayApp,

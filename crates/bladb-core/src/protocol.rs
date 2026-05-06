@@ -65,6 +65,15 @@ impl GatewayRequest {
                 require(self.body.collection.is_some(), "collection")?;
                 require(self.body.document.is_some(), "document")?;
             }
+            (RequestKind::Command, Engine::Mongo, "updateOne") => {
+                require(self.body.collection.is_some(), "collection")?;
+                require(self.body.query.is_some(), "query")?;
+                require(self.body.document.is_some(), "document")?;
+            }
+            (RequestKind::Command, Engine::Mongo, "deleteOne") => {
+                require(self.body.collection.is_some(), "collection")?;
+                require(self.body.query.is_some(), "query")?;
+            }
             (RequestKind::Query, Engine::Redis, "get") => {
                 require(self.body.name.is_some(), "name")?;
             }

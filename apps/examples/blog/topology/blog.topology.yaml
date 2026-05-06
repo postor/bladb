@@ -6,6 +6,8 @@ moduleClusters:
       - blog.posts.list-published
       - blog.posts.list-mine
       - blog.posts.create
+      - blog.posts.update-mine
+      - blog.posts.delete-mine
     discovery:
       kind: service
       service: bladb-module-blog

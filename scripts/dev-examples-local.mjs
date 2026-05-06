@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import {
@@ -10,56 +10,78 @@ import {
   resolveExampleStackPorts,
   writeExampleStackState,
 } from "./lib/example-stack.mjs";
+import {
+  buildRustCommandEnv,
+  renderExampleGatewayConfig,
+  resolveRustBinaryPath,
+} from "./lib/local-rust-dev.mjs";
 
 const rootDir = process.cwd();
 const children = [];
 let shuttingDown = false;
+const generatedGatewayConfigPath = path.join(rootDir, "bladb.local-dev.generated.yml");
 
 const isWindows = process.platform === "win32";
-const cargoBin = isWindows ? "C:/Users/posto/.cargo/bin/cargo.exe" : "cargo";
+const cargoBin = isWindows ? "C:\\Users\\posto\\.cargo\\bin\\cargo.exe" : "cargo";
 const pnpmBin = isWindows ? "pnpm.cmd" : "pnpm";
 const nodeBin = isWindows ? "node.exe" : "node";
-const gatewayExe = path.join(
-  rootDir,
-  "target",
-  "debug",
-  isWindows ? "bladb-gateway.exe" : "bladb-gateway",
-);
+const rustEnv = buildRustCommandEnv();
+const gatewayExe = resolveRustBinaryPath(rootDir, "bladb-gateway");
+const rustUserServiceExe = resolveRustBinaryPath(rootDir, "rust-user-service");
 
 try {
   const ports = await resolveExampleStackPorts();
   const urls = exampleStackUrlsFromPorts(ports);
   const sharedEnv = {
-    ...process.env,
+    ...rustEnv,
     ...exampleStackPortEnv(ports),
     VITE_EXAMPLE_FLASH_SALE_URL: urls.flashSaleUrl,
     VITE_EXAMPLE_BLOG_URL: urls.blogUrl,
     VITE_EXAMPLE_IOT_URL: urls.iotUrl,
     VITE_EXAMPLE_ROS2_URL: urls.ros2Url,
     VITE_EXAMPLE_USER_MODULE_DEMO_URL: urls.userModuleDemoUrl,
+    VITE_EXAMPLE_ROS2_BACKEND_URL: urls.ros2BackendUrl,
   };
   await clearExampleStackState();
+  await writeGeneratedGatewayConfig({
+    launcherUrl: `http://${EXAMPLE_STACK_HOST}:8790`,
+    ros2BackendUrl: urls.ros2BackendUrl,
+  });
 
-  await runBootstrap(cargoBin, ["build", "-p", "bladb-gateway"], "build:gateway");
+  await runBootstrap(
+    cargoBin,
+    ["build", "-p", "bladb-gateway", "-p", "rust-user-service"],
+    "build:gateway",
+    rustEnv,
+  );
   await access(gatewayExe);
+  await access(rustUserServiceExe);
 
   startProcess(
+    rustUserServiceExe,
+    [],
+    "rust-user-service",
+    {
+      ...sharedEnv,
+      BLADB_SERVER_HOST: EXAMPLE_STACK_HOST,
+      BLADB_SERVER_PORT: "8790",
+    },
+  );
+  startProcess(
     nodeBin,
-    [
-      "packages/server/src/cli.mjs",
-      "--app",
-      "user-module-demo",
-      "--modules-dir",
-      "apps/server-modules",
-      "--host",
-      EXAMPLE_STACK_HOST,
-      "--port",
-      "8790",
-    ],
-    "server-modules",
+    ["apps/examples/ros2-backend/server.mjs"],
+    "ros2-backend",
+    {
+      ...sharedEnv,
+      PORT: String(ports.ros2Backend),
+    },
+  );
+  startProcess(
+    gatewayExe,
+    ["serve", `${EXAMPLE_STACK_HOST}:${ports.gateway}`, generatedGatewayConfigPath],
+    "gateway",
     sharedEnv,
   );
-  startProcess(gatewayExe, ["serve", `${EXAMPLE_STACK_HOST}:${ports.gateway}`], "gateway");
   startProcess(
     pnpmBin,
     [
@@ -171,7 +193,7 @@ try {
   await writeExampleStackState({ ports, source: "local-dev" });
 
   console.log("Bladb example stack is starting:");
-  console.log(`- server-modules: http://${EXAMPLE_STACK_HOST}:8790`);
+  console.log(`- rust-user-service: http://${EXAMPLE_STACK_HOST}:8790`);
   console.log(`- gateway: ${urls.gatewayUrl}/health`);
   console.log(`- examples-portal: ${urls.portalUrl}`);
   console.log(`- flash-sale: ${urls.flashSaleUrl}`);
@@ -194,10 +216,11 @@ process.on("exit", () => {
   }
 });
 
-async function runBootstrap(command, args, label) {
+async function runBootstrap(command, args, label, env = process.env) {
   await new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: rootDir,
+      env,
       stdio: "inherit",
       shell: shouldUseShell(command),
     });
@@ -247,10 +270,20 @@ async function shutdown(code) {
     child.kill("SIGTERM");
   }
 
+  await rm(generatedGatewayConfigPath, { force: true });
   await new Promise((resolve) => setTimeout(resolve, 200));
   process.exit(code);
 }
 
 function shouldUseShell(command) {
   return isWindows && command.toLowerCase().endsWith(".cmd");
+}
+
+async function writeGeneratedGatewayConfig({ launcherUrl, ros2BackendUrl }) {
+  const source = await readFile(path.join(rootDir, "bladb.yml"), "utf8");
+  const rendered = renderExampleGatewayConfig(source, {
+    launcherUrl,
+    ros2BackendUrl,
+  });
+  await writeFile(generatedGatewayConfigPath, rendered, "utf8");
 }

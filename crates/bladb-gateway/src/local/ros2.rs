@@ -1,5 +1,5 @@
 use super::{now_label, AppApiHandler, AppApiRequest, AppError};
-use crate::{ExecutionContext, ModuleRuntime, RuntimeError};
+use crate::{http_agent_with_timeouts, ExecutionContext, ModuleRuntime, RuntimeError};
 use bladb_core::protocol::ErrorCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -129,10 +129,8 @@ impl Ros2Module {
         body: Option<&Value>,
     ) -> Result<Value, AppError> {
         let url = Self::backend_url(base_url, path);
-        let agent = ureq::AgentBuilder::new()
-            .timeout_read(Duration::from_secs(5))
-            .timeout_write(Duration::from_secs(5))
-            .build();
+        let agent = http_agent_with_timeouts(Duration::from_secs(5), Duration::from_secs(5))
+            .map_err(AppError::internal)?;
         let request = agent.request(method, &url);
         let response = match body {
             Some(payload) => request
@@ -879,7 +877,10 @@ mod tests {
     fn ros2_module_subscribers_receive_published_messages() {
         let module = module();
         let subscription = module
-            .open_message_stream(Some(&session()), "/apps/ros2-bridge/messages/cmd_vel/stream")
+            .open_message_stream(
+                Some(&session()),
+                "/apps/ros2-bridge/messages/cmd_vel/stream",
+            )
             .expect("open local ros2 stream")
             .expect("local ros2 stream");
 
@@ -924,7 +925,10 @@ mod tests {
         });
 
         let subscription = module
-            .open_message_stream(Some(&session()), "/apps/ros2-bridge/messages/cmd_vel/stream")
+            .open_message_stream(
+                Some(&session()),
+                "/apps/ros2-bridge/messages/cmd_vel/stream",
+            )
             .expect("open proxy ros2 stream")
             .expect("proxy ros2 stream");
 

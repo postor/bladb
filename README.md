@@ -118,6 +118,7 @@ bladb/
   crates/
     bladb-core/
     bladb-gateway/
+    bladb-server/
     bladb-module-runtime/
     bladb-worker-runtime/
     module-*/
@@ -155,6 +156,7 @@ bladb/
 - `apps/examples/iot-realtime`: anonymous direct-entry device telemetry + command demo
 - `apps/examples/ros2-bridge`: anonymous direct-entry ROS2-style publish and subscribe bridge demo
 - `apps/examples/user-module-demo`: dedicated `db.user` login/register/me/logout verification workbench
+- `apps/examples/rust-user-service`: minimal Rust-hosted user-style service example for the new Rust launcher
 - `apps/examples/examples-portal`: suite home with runtime URLs, credentials, and the recommended example tour
 
 The example apps now behave as a connected suite:
@@ -593,6 +595,8 @@ This starts:
 
 If one of those host ports is already occupied, `pnpm dev:examples` and `pnpm dev:examples:local` now auto-pick the next free local ports and print the resolved URLs after startup.
 
+The local non-Docker stack also starts the Rust-hosted launcher-backed user service on `127.0.0.1:8790`, and the gateway reaches the official `db.user` contract through `modules.official.users.session.transport=launcher-http`.
+
 If you want to pin ports for this project, you can set any of:
 
 - `BLADB_GATEWAY_PORT`
@@ -899,8 +903,11 @@ Current status:
 
 - single-file module discovery is implemented
 - named export registry and request-scoped `db` are implemented
-- in-memory transport-backed launcher tests are passing
-- real NATS transport wiring and Rust gateway integration are the next follow-up batch
+- in-memory and HTTP transport-backed launcher tests are passing on the Node side
+- a first Rust analogue now exists in `crates/bladb-server`
+- the Rust launcher already supports handler registration, subject mapping, in-memory transport, and standalone HTTP invoke hosting
+- `crates/rust-user-service` proves a project-local Rust service can implement `health/login/me/logout` over that launcher shape
+- config-driven process spawning, NATS parity, and direct gateway auto-wiring are still follow-up work
 
 ## Next milestones
 

@@ -496,7 +496,15 @@ async function assertBlogFlow() {
     throw new Error(`blog public list failed: ${JSON.stringify(publicListPayload)}`);
   }
 
+  const foreignSeedPost = publicListPayload.data.find((post) => post.authorUid !== "u_5001");
+  if (!foreignSeedPost) {
+    throw new Error(`blog public list is missing a second author's article: ${JSON.stringify(publicListPayload)}`);
+  }
+
   const token = authTokens.get("blog");
+  const uniqueSuffix = `${Date.now()}`;
+  const createdTitle = `Smoke test post ${uniqueSuffix}`;
+  const createdSlug = `smoke-test-post-${uniqueSuffix}`;
   const createResponse = await fetch(`${gatewayUrl}/execute`, {
     method: "POST",
     headers: {
@@ -515,8 +523,8 @@ async function assertBlogFlow() {
         tenantId: { $ctx: "tenantId", token: "TENANT_ID" },
         authorUid: { $ctx: "uid", token: "UID" },
         authorName: "Blog Editor",
-        title: "Smoke test post",
-        slug: "smoke-test-post",
+        title: createdTitle,
+        slug: createdSlug,
         summary: "Created during smoke validation.",
         body: "Verifying mongo + user integration.",
         published: true
@@ -524,7 +532,8 @@ async function assertBlogFlow() {
     }),
   });
   const createPayload = await createResponse.json();
-  if (!createResponse.ok || createPayload.data?.slug !== "smoke-test-post") {
+  const createdPostId = createPayload.data?.id;
+  if (!createResponse.ok || createPayload.data?.slug !== createdSlug || !createdPostId) {
     throw new Error(`blog create failed: ${JSON.stringify(createPayload)}`);
   }
 
@@ -555,9 +564,61 @@ async function assertBlogFlow() {
   if (
     !mineResponse.ok ||
     !Array.isArray(minePayload.data) ||
-    !minePayload.data.some((post) => post.slug === "smoke-test-post")
+    !minePayload.data.some((post) => post.slug === createdSlug)
   ) {
     throw new Error(`blog mine failed: ${JSON.stringify(minePayload)}`);
+  }
+
+  const updateResponse = await fetch(`${gatewayUrl}/apps/blog/me/posts/${createdPostId}`, {
+    method: "PATCH",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      title: `${createdTitle} updated`,
+      slug: `${createdSlug}-updated`,
+      summary: "Updated during smoke validation.",
+      body: "Updated body during smoke validation.",
+      published: true,
+    }),
+  });
+  const updatePayload = await updateResponse.json();
+  if (!updateResponse.ok || updatePayload.data?.slug !== `${createdSlug}-updated`) {
+    throw new Error(`blog update failed: ${JSON.stringify(updatePayload)}`);
+  }
+
+  const hackedUpdateResponse = await fetch(`${gatewayUrl}/execute`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      kind: "command",
+      engine: "mongo",
+      action: "updateOne",
+      meta: {
+        policy: "blog.posts.update-mine"
+      },
+      collection: "posts",
+      query: {
+        id: foreignSeedPost.id,
+        tenantId: { $ctx: "tenantId", token: "TENANT_ID" },
+        authorUid: { $ctx: "uid", token: "UID" }
+      },
+      document: {
+        title: "Hacked title",
+        slug: "hacked-title",
+        summary: "This should fail",
+        body: "This should fail",
+        published: true
+      }
+    }),
+  });
+  const hackedUpdatePayload = await hackedUpdateResponse.json();
+  if (hackedUpdateResponse.ok || !String(hackedUpdatePayload?.error?.message ?? hackedUpdatePayload?.message ?? "").includes("another author's article")) {
+    throw new Error(`blog forged update should fail but returned: ${JSON.stringify(hackedUpdatePayload)}`);
   }
 
   const publishedResponse = await fetch(`${gatewayUrl}/apps/blog/posts`);
@@ -565,9 +626,34 @@ async function assertBlogFlow() {
   if (
     !publishedResponse.ok ||
     !Array.isArray(publishedPayload.data) ||
-    !publishedPayload.data.some((post) => post.slug === "smoke-test-post")
+    !publishedPayload.data.some((post) => post.slug === `${createdSlug}-updated`)
   ) {
     throw new Error(`blog published list refresh failed: ${JSON.stringify(publishedPayload)}`);
+  }
+
+  const deleteResponse = await fetch(`${gatewayUrl}/apps/blog/me/posts/${createdPostId}`, {
+    method: "DELETE",
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const deletePayload = await deleteResponse.json();
+  if (!deleteResponse.ok || deletePayload.data?.deleted !== true) {
+    throw new Error(`blog delete failed: ${JSON.stringify(deletePayload)}`);
+  }
+
+  const myPostsAfterDelete = await fetch(`${gatewayUrl}/apps/blog/me/posts`, {
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const myPostsAfterDeletePayload = await myPostsAfterDelete.json();
+  if (
+    !myPostsAfterDelete.ok ||
+    !Array.isArray(myPostsAfterDeletePayload.data) ||
+    myPostsAfterDeletePayload.data.some((post) => post.id === createdPostId)
+  ) {
+    throw new Error(`blog delete verification failed: ${JSON.stringify(myPostsAfterDeletePayload)}`);
   }
 
   console.log("blog mongo + user flow: ok");
@@ -578,6 +664,11 @@ async function assertBlogPublicFlow() {
   const payload = await response.json();
   if (!response.ok || !Array.isArray(payload.data) || payload.data.length < 1) {
     throw new Error(`blog public list failed: ${JSON.stringify(payload)}`);
+  }
+
+  const authors = new Set(payload.data.map((post) => post.authorUid));
+  if (authors.size < 2) {
+    throw new Error(`blog public plaza should show multiple authors: ${JSON.stringify(payload)}`);
   }
 
   console.log("blog public ui: ok");

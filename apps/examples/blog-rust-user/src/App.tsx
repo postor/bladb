@@ -17,9 +17,9 @@ import {
 import { ExampleSuiteNav } from "../../shared/ExampleSuiteNav";
 
 const defaultComposer: BlogComposerInput = {
-  title: "Shipping a small tenant-aware blog",
-  summary: "A fresh post created through db.user + db.mongo.",
-  body: "This editor flow proves that the user module and Mongo policy path can work together."
+  title: "Publishing through the Rust user module",
+  summary: "The editor session is now minted by the Rust user service.",
+  body: "This variant keeps the blog UI but swaps the user backend from the Node launcher to the Rust launcher."
 };
 
 export default function App() {
@@ -37,8 +37,8 @@ export default function App() {
   const [selectedLoading, setSelectedLoading] = useState(false);
   const [loginEmail, setLoginEmail] = useState("editor@blog.demo");
   const [loginPassword, setLoginPassword] = useState("demo123");
-  const [registerName, setRegisterName] = useState("New Blogger");
-  const [registerEmail, setRegisterEmail] = useState("new-blogger@blog.demo");
+  const [registerName, setRegisterName] = useState("Rust Blogger");
+  const [registerEmail, setRegisterEmail] = useState("rust-blogger@blog.demo");
   const [registerPassword, setRegisterPassword] = useState("demo123");
   const [composer, setComposer] = useState<BlogComposerInput>(defaultComposer);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
@@ -180,8 +180,8 @@ export default function App() {
 
       <section className="hero">
         <div>
-          <p className="eyebrow">Mongo + user example</p>
-          <h1>Blog</h1>
+          <p className="eyebrow">Mongo + Rust user module example</p>
+          <h1>Blog Rust User</h1>
           <p className="lede">
             Readers browse the homepage plaza immediately. Editors manage only their own articles,
             and any attempt to tamper with someone else&apos;s content is rejected.
@@ -202,7 +202,7 @@ export default function App() {
         <div className="session-card">
           <span className="label">Editor session</span>
           <strong>{session.session?.user.displayName ?? "Signed out"}</strong>
-          <small>{session.session?.user.email ?? "Use the seeded editor or register a new one."}</small>
+          <small>{session.session?.user.email ?? "Use the seeded blog editor or register a new one."}</small>
           <span className={session.session ? "status-chip status-live" : "status-chip"}>
             {session.session ? "Own-article controls enabled" : "Public plaza only"}
           </span>
@@ -221,7 +221,7 @@ export default function App() {
           <ul className="plain-list">
             <li>The homepage plaza lists published articles from every author.</li>
             <li>The manage surface is scoped to `GET /apps/blog/me/posts` and never exposes write controls for foreign content.</li>
-            <li>The official `db.user` session still drives every editor action.</li>
+            <li>The Rust-backed `db.user` session still drives every editor action.</li>
           </ul>
         </article>
 

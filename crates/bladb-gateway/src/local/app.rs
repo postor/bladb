@@ -83,8 +83,9 @@ impl LocalGatewayApp {
         let iot = Arc::new(IotModule::new());
         let ros2 = Arc::new(Ros2Module::new());
         let modules: Vec<Arc<dyn ModuleRuntime>> =
-            vec![blog, flash_sale.clone(), iot.clone(), ros2.clone()];
-        let app_apis: Vec<Arc<dyn AppApiHandler>> = vec![flash_sale.clone(), iot, ros2];
+            vec![blog.clone(), flash_sale.clone(), iot.clone(), ros2.clone()];
+        let app_apis: Vec<Arc<dyn AppApiHandler>> =
+            vec![blog.clone(), flash_sale.clone(), iot, ros2];
         let anonymous_apps = HashSet::from([
             "blog".to_string(),
             "flash-sale".to_string(),
@@ -366,9 +367,9 @@ impl LocalGatewayApp {
         bearer_token: Option<&str>,
         cookie_token: Option<&str>,
     ) -> Result<GatewayHttpResponse<Value>, AppError> {
-        let session_cookie = self
-            .user_module
-            .logout_for_request(app, bearer_token, cookie_token)?;
+        let session_cookie =
+            self.user_module
+                .logout_for_request(app, bearer_token, cookie_token)?;
         Ok(GatewayHttpResponse {
             data: json!({ "revoked": true }),
             session_cookie,
@@ -420,7 +421,10 @@ impl LocalGatewayApp {
             })
             .map(Some)?;
 
-        Ok(GatewayHttpResponse { data, session_cookie })
+        Ok(GatewayHttpResponse {
+            data,
+            session_cookie,
+        })
     }
 
     pub fn open_ros2_stream(
@@ -538,7 +542,11 @@ impl LocalGatewayApp {
         }
 
         if let Some(cookie) = cookie_token {
-            return self.user_module.session_from_cookie(app, cookie).map(Some);
+            match self.user_module.session_from_cookie(app, cookie) {
+                Ok(session) => return Ok(Some(session)),
+                Err(error) if !self.anonymous_apps.contains(app) => return Err(error),
+                Err(_) => {}
+            }
         }
 
         if self.anonymous_apps.contains(app) {

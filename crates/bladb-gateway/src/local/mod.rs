@@ -15,12 +15,12 @@ use serde_json::Value;
 pub use app::{GatewayHttpResponse, LocalGatewayApp};
 pub(crate) use app_api::{AppApiHandler, AppApiRequest};
 pub use auth::{InMemoryAuthService, InMemoryUserConfig};
+pub use blog::{BlogModule, BlogModuleConfig};
 pub(crate) use config::LocalGatewayFileConfig;
 pub use config::{
     GatewayRuntimeConfig, LocalGatewayConfig, LocalGatewayModulesConfig, OfficialModulesConfig,
     OfficialUsersModuleConfig,
 };
-pub use blog::{BlogModule, BlogModuleConfig};
 pub use flash_sale::{FlashSaleModule, FlashSaleModuleConfig};
 pub use iot::{IotModule, IotModuleConfig, IotSubscription};
 pub use ros2::{Ros2Module, Ros2ModuleConfig, Ros2Subscription};
@@ -654,6 +654,72 @@ mod tests {
         assert_eq!(me.data["user"]["uid"], uid);
         assert_eq!(me.data["anonymous"], true);
         assert!(me.session_cookie.is_some());
+    }
+
+    #[test]
+    fn local_app_restores_anonymous_blog_identity_through_cookie_and_me() {
+        let config_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/examples/gateway/local-gateway.yaml");
+        let config = LocalGatewayConfig::from_path(&config_path).expect("load gateway config");
+        let app = LocalGatewayApp::from_local_config(config).expect("build app from config");
+
+        let published = app
+            .handle_app_api_http("GET", "/apps/blog/posts", None, None, None)
+            .expect("anonymous blog response");
+        let cookie = published
+            .session_cookie
+            .expect("anonymous blog session cookie should be set");
+        let cookie_value = cookie
+            .header_value()
+            .split(';')
+            .next()
+            .and_then(|pair| pair.split_once('='))
+            .map(|(_, value)| value.to_string())
+            .expect("cookie token");
+
+        let me = app
+            .user_me_http(Some("blog"), None, Some(cookie_value.as_str()))
+            .expect("cookie me");
+
+        assert_eq!(me.data["user"]["app"], "blog");
+        assert_eq!(me.data["anonymous"], true);
+        assert!(me.data["user"]["uid"]
+            .as_str()
+            .is_some_and(|uid| uid.starts_with("anon_blog_")));
+        assert!(me.session_cookie.is_some());
+    }
+
+    #[test]
+    fn local_app_recovers_anonymous_blog_session_from_stale_cookie() {
+        let config_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/examples/gateway/local-gateway.yaml");
+        let config = LocalGatewayConfig::from_path(&config_path).expect("load gateway config");
+        let app = LocalGatewayApp::from_local_config(config).expect("build app from config");
+
+        let response = app
+            .handle_app_api_http(
+                "GET",
+                "/apps/blog/posts",
+                None,
+                Some("stale-blog-cookie"),
+                None,
+            )
+            .expect("stale anonymous cookie should fall back to a fresh blog identity");
+
+        let posts = response
+            .data
+            .expect("blog payload")
+            .as_array()
+            .expect("blog post list")
+            .to_vec();
+        let cookie = response
+            .session_cookie
+            .expect("fresh anonymous session cookie should be returned");
+
+        assert!(!posts.is_empty());
+        assert!(posts.iter().all(|post| post["published"] == true));
+        assert!(cookie.header_value().contains("bladb_sid_blog="));
+        assert!(!cookie.header_value().contains("stale-blog-cookie"));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use super::{
-    auth::AuthSession,
-    now_label, value_as_i64, value_as_string, AppApiHandler, AppApiRequest, AppError,
+    auth::AuthSession, now_label, value_as_i64, value_as_string, AppApiHandler, AppApiRequest,
+    AppError,
 };
 use crate::{ExecutionContext, ModuleRuntime, RuntimeError};
 use serde::{Deserialize, Serialize};
@@ -170,12 +170,7 @@ impl FlashSaleModule {
     }
 
     pub fn from_config(config: FlashSaleModuleConfig) -> Self {
-        let default_wallet_balance = config
-            .wallets
-            .values()
-            .copied()
-            .max()
-            .unwrap_or(1280);
+        let default_wallet_balance = config.wallets.values().copied().max().unwrap_or(1280);
 
         Self {
             state: Arc::new(Mutex::new(FlashSaleState {
@@ -317,9 +312,7 @@ impl FlashSaleModule {
     fn require_session<'a>(&self, request: &'a AppApiRequest) -> Result<&'a AuthSession, AppError> {
         let session = request.session.as_ref().ok_or_else(|| {
             if self.allow_anonymous_app_access {
-                AppError::internal(
-                    "flash-sale anonymous identity was not resolved by the gateway",
-                )
+                AppError::internal("flash-sale anonymous identity was not resolved by the gateway")
             } else {
                 AppError::unauthorized("missing bearer token")
             }
@@ -579,7 +572,12 @@ impl QueueStatus {
     }
 }
 
-fn process_ticket(state: Arc<Mutex<FlashSaleState>>, queue: FlashSaleQueueConfig, ticket_id: &str, initial_position: u64) {
+fn process_ticket(
+    state: Arc<Mutex<FlashSaleState>>,
+    queue: FlashSaleQueueConfig,
+    ticket_id: &str,
+    initial_position: u64,
+) {
     let queue_delay =
         Duration::from_millis(initial_position.saturating_sub(1) * queue.position_delay_ms);
     thread::sleep(queue_delay);
@@ -667,7 +665,8 @@ fn process_ticket(state: Arc<Mutex<FlashSaleState>>, queue: FlashSaleQueueConfig
             Ok(order_id) => {
                 ticket.status = QueueStatus::Completed;
                 ticket.order_id = Some(order_id);
-                ticket.message = "Worker reserved stock, charged wallet, and inserted the order".into();
+                ticket.message =
+                    "Worker reserved stock, charged wallet, and inserted the order".into();
                 ticket.steps.push(step(
                     "redis",
                     "reserve-stock",

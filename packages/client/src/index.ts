@@ -293,7 +293,7 @@ interface ErrorPayload {
 
 interface JsonRequestOptions {
   path: string;
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
   auth?: "optional" | "required" | "none";
 }
@@ -359,6 +359,12 @@ export interface MongoQueryBuilder {
     document: Record<string, SerializedValue>,
     meta?: RequestMetaInput
   ): Promise<T>;
+  updateOne<T = unknown>(
+    query: Record<string, SerializedValue>,
+    document: Record<string, SerializedValue>,
+    meta?: RequestMetaInput
+  ): Promise<T>;
+  deleteOne<T = unknown>(query: Record<string, SerializedValue>, meta?: RequestMetaInput): Promise<T>;
 }
 
 export interface RedisCommands {
@@ -432,6 +438,8 @@ export interface BrowserBladbClient<TSession extends GatewaySession = GatewaySes
 export interface AppEndpointClient {
   get<T = unknown>(path?: string): Promise<T>;
   post<T = unknown>(path: string, body?: Record<string, unknown> | SerializedValue): Promise<T>;
+  patch<T = unknown>(path: string, body?: Record<string, unknown> | SerializedValue): Promise<T>;
+  delete<T = unknown>(path: string): Promise<T>;
   stream<T = unknown>(
     path: string,
     options: { onOpen?: () => void; signal?: AbortSignal; onMessage: (payload: T) => void }
@@ -826,6 +834,25 @@ function buildClient(options: BladbClientOptions, baseMeta?: RequestMetaInput): 
           });
         },
 
+        patch<T = unknown>(path: string, body?: Record<string, unknown> | SerializedValue) {
+          const suffix = path.replace(/^\/+/, "");
+          return requestJson<T>(options, {
+            path: suffix ? `${basePath}/${suffix}` : basePath,
+            method: "PATCH",
+            body,
+            auth: options.appAuth ?? "required"
+          });
+        },
+
+        delete<T = unknown>(path: string) {
+          const suffix = path.replace(/^\/+/, "");
+          return requestJson<T>(options, {
+            path: suffix ? `${basePath}/${suffix}` : basePath,
+            method: "DELETE",
+            auth: options.appAuth ?? "required"
+          });
+        },
+
         async stream<T = unknown>(
           path: string,
           streamOptions: { onOpen?: () => void; signal?: AbortSignal; onMessage: (payload: T) => void }
@@ -960,6 +987,33 @@ function buildClient(options: BladbClientOptions, baseMeta?: RequestMetaInput): 
             meta: serializeMeta(mergeMeta(collectionMeta, meta)),
             collection,
             document: serialize(document)
+          });
+        },
+
+        updateOne<T = unknown>(
+          query: Record<string, SerializedValue>,
+          document: Record<string, SerializedValue>,
+          meta?: RequestMetaInput
+        ) {
+          return post<T>(options, {
+            kind: "command",
+            engine: "mongo",
+            action: "updateOne",
+            meta: serializeMeta(mergeMeta(collectionMeta, meta)),
+            collection,
+            query: serialize(query),
+            document: serialize(document)
+          });
+        },
+
+        deleteOne<T = unknown>(query: Record<string, SerializedValue>, meta?: RequestMetaInput) {
+          return post<T>(options, {
+            kind: "command",
+            engine: "mongo",
+            action: "deleteOne",
+            meta: serializeMeta(mergeMeta(collectionMeta, meta)),
+            collection,
+            query: serialize(query)
           });
         }
       };

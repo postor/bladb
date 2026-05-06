@@ -35,3 +35,23 @@ policies:
       fields:
         tenantId: "{TENANT_ID}"
         authorUid: "{UID}"
+
+  - name: blog.posts.update-mine
+    match:
+      engine: mongo
+      collection: posts
+      action: updateOne
+    enforce:
+      query:
+        tenantId: "{TENANT_ID}"
+        authorUid: "{UID}"
+
+  - name: blog.posts.delete-mine
+    match:
+      engine: mongo
+      collection: posts
+      action: deleteOne
+    enforce:
+      query:
+        tenantId: "{TENANT_ID}"
+        authorUid: "{UID}"

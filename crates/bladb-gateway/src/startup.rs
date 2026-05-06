@@ -246,7 +246,7 @@ mod tests {
                 assert!(config_path.ends_with("bladb.yml"));
                 assert_eq!(app.runtimes.len(), 4);
                 assert_eq!(app.runtimes[0].name, "flash-sale");
-                assert_eq!(app.auth_users.len(), 5);
+                assert_eq!(app.auth_users.len(), 6);
                 assert!(app.official_users.is_some());
                 assert_eq!(
                     app.official_users

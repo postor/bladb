@@ -10,8 +10,8 @@ const viteEnv = (import.meta as ImportMeta & { env?: Record<string, string | und
 
 export const BLADB_URL = viteEnv?.VITE_BLADB_URL ?? "http://localhost:8787";
 export const BLOG_APP = "blog";
-export const BLOG_TOKEN_KEY = "bladb.blog.token";
-export const BLOG_SESSION_KEY = "bladb.blog.session";
+export const BLOG_TOKEN_KEY = "bladb.blog-rust-user.token";
+export const BLOG_SESSION_KEY = "bladb.blog-rust-user.session";
 
 export type BlogSession = GatewaySession;
 
@@ -35,6 +35,13 @@ export interface BlogComposerInput {
   published?: boolean;
 }
 
+const blogGuestDb = createClient({
+  baseUrl: BLADB_URL,
+  appAuth: "optional",
+  executeAuth: "optional",
+  sessionAppName: BLOG_APP
+});
+
 export function slugify(title: string) {
   return title
     .trim()
@@ -43,13 +50,6 @@ export function slugify(title: string) {
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
 }
-
-const blogGuestDb = createClient({
-  baseUrl: BLADB_URL,
-  appAuth: "optional",
-  executeAuth: "optional",
-  sessionAppName: BLOG_APP
-});
 
 export function createBlogModule() {
   return createBrowserAppModule({

@@ -68,6 +68,15 @@ auth:
       roles:
         - editor
 
+    - app: blog
+      uid: u_5002
+      tenantId: tenant_blog
+      email: guest@blog.demo
+      password: demo123
+      displayName: Guest Writer
+      roles:
+        - editor
+
     - app: ros2-bridge
       uid: u_3001
       tenantId: tenant_robotics
@@ -101,6 +110,16 @@ modules:
         published: true
         createdAt: 2026-05-06T08:00:00Z
       - id: post_0002
+        tenantId: tenant_blog
+        authorUid: u_5002
+        authorName: Guest Writer
+        title: How another author appears in the plaza
+        slug: how-another-author-appears-in-the-plaza
+        summary: A seeded second-author article so the homepage plaza is not single-owner.
+        body: Readers should see more than one voice in the shared square, while edit rights still stay bound to the owning author.
+        published: true
+        createdAt: 2026-05-06T10:15:00Z
+      - id: post_0003
         tenantId: tenant_blog
         authorUid: u_5001
         authorName: Blog Editor
