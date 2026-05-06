@@ -427,9 +427,10 @@ impl LocalGatewayApp {
         &self,
         path: &str,
         bearer_token: Option<&str>,
+        cookie_token: Option<&str>,
     ) -> Result<Option<Ros2Subscription>, AppError> {
-        let session = match bearer_token {
-            Some(token) => Some(self.user_module.session_from_bearer(token)?),
+        let session = match app_name_from_app_path(path) {
+            Some(app) => self.resolve_app_session(&app, bearer_token, cookie_token)?,
             None => None,
         };
         self.find_ros2_stream(path, session.as_ref())
@@ -439,9 +440,10 @@ impl LocalGatewayApp {
         &self,
         path: &str,
         bearer_token: Option<&str>,
+        cookie_token: Option<&str>,
     ) -> Result<Option<IotSubscription>, AppError> {
-        let session = match bearer_token {
-            Some(token) => Some(self.user_module.session_from_bearer(token)?),
+        let session = match app_name_from_app_path(path) {
+            Some(app) => self.resolve_app_session(&app, bearer_token, cookie_token)?,
             None => None,
         };
         self.find_iot_stream(path, session.as_ref())

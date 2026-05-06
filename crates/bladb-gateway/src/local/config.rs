@@ -1,6 +1,6 @@
 use super::{
-    auth::InMemoryUserConfig, flash_sale::FlashSaleModuleConfig, iot::IotModuleConfig,
-    ros2::Ros2ModuleConfig,
+    auth::InMemoryUserConfig, blog::BlogModuleConfig, flash_sale::FlashSaleModuleConfig,
+    iot::IotModuleConfig, ros2::Ros2ModuleConfig,
 };
 use crate::AuthContext;
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,7 @@ pub struct LocalGatewayConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalGatewayModulesConfig {
+    pub blog: Option<BlogModuleConfig>,
     pub flash_sale: Option<FlashSaleModuleConfig>,
     pub iot: Option<IotModuleConfig>,
     pub ros2: Option<Ros2ModuleConfig>,

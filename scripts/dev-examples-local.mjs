@@ -4,9 +4,11 @@ import path from "node:path";
 import process from "node:process";
 import {
   EXAMPLE_STACK_HOST,
+  clearExampleStackState,
   exampleStackPortEnv,
   exampleStackUrlsFromPorts,
   resolveExampleStackPorts,
+  writeExampleStackState,
 } from "./lib/example-stack.mjs";
 
 const rootDir = process.cwd();
@@ -29,12 +31,36 @@ try {
   const sharedEnv = {
     ...process.env,
     ...exampleStackPortEnv(ports),
+    VITE_EXAMPLE_FLASH_SALE_URL: urls.flashSaleUrl,
+    VITE_EXAMPLE_BLOG_URL: urls.blogUrl,
+    VITE_EXAMPLE_IOT_URL: urls.iotUrl,
+    VITE_EXAMPLE_ROS2_URL: urls.ros2Url,
+    VITE_EXAMPLE_USER_MODULE_DEMO_URL: urls.userModuleDemoUrl,
   };
+  await clearExampleStackState();
 
   await runBootstrap(cargoBin, ["build", "-p", "bladb-gateway"], "build:gateway");
   await access(gatewayExe);
 
   startProcess(gatewayExe, ["serve", `${EXAMPLE_STACK_HOST}:${ports.gateway}`], "gateway");
+  startProcess(
+    pnpmBin,
+    [
+      "--dir",
+      "apps/examples/examples-portal",
+      "dev",
+      "--host",
+      EXAMPLE_STACK_HOST,
+      "--port",
+      String(ports.portal),
+    ],
+    "examples-portal",
+    {
+      ...sharedEnv,
+      VITE_BLADB_URL: urls.gatewayUrl,
+      VITE_EXAMPLE_PORTAL_URL: urls.portalUrl,
+    },
+  );
   startProcess(
     pnpmBin,
     [
@@ -50,6 +76,25 @@ try {
     {
       ...sharedEnv,
       VITE_BLADB_URL: urls.gatewayUrl,
+      VITE_EXAMPLE_PORTAL_URL: urls.portalUrl,
+    },
+  );
+  startProcess(
+    pnpmBin,
+    [
+      "--dir",
+      "apps/examples/blog",
+      "dev",
+      "--host",
+      EXAMPLE_STACK_HOST,
+      "--port",
+      String(ports.blog),
+    ],
+    "blog",
+    {
+      ...sharedEnv,
+      VITE_BLADB_URL: urls.gatewayUrl,
+      VITE_EXAMPLE_PORTAL_URL: urls.portalUrl,
     },
   );
   startProcess(
@@ -67,6 +112,7 @@ try {
     {
       ...sharedEnv,
       VITE_BLADB_URL: urls.gatewayUrl,
+      VITE_EXAMPLE_PORTAL_URL: urls.portalUrl,
     },
   );
   startProcess(
@@ -84,6 +130,7 @@ try {
     {
       ...sharedEnv,
       VITE_BLADB_URL: urls.gatewayUrl,
+      VITE_EXAMPLE_PORTAL_URL: urls.portalUrl,
     },
   );
   startProcess(
@@ -101,12 +148,16 @@ try {
     {
       ...sharedEnv,
       VITE_BLADB_URL: urls.gatewayUrl,
+      VITE_EXAMPLE_PORTAL_URL: urls.portalUrl,
     },
   );
+  await writeExampleStackState({ ports, source: "local-dev" });
 
   console.log("Bladb example stack is starting:");
   console.log(`- gateway: ${urls.gatewayUrl}/health`);
+  console.log(`- examples-portal: ${urls.portalUrl}`);
   console.log(`- flash-sale: ${urls.flashSaleUrl}`);
+  console.log(`- blog: ${urls.blogUrl}`);
   console.log(`- iot-realtime: ${urls.iotUrl}`);
   console.log(`- ros2-bridge: ${urls.ros2Url}`);
   console.log(`- user-module-demo: ${urls.userModuleDemoUrl}`);
@@ -173,6 +224,7 @@ async function shutdown(code) {
   }
 
   shuttingDown = true;
+  await clearExampleStackState();
   for (const child of children) {
     child.kill("SIGTERM");
   }

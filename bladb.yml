@@ -54,6 +54,16 @@ gateway:
           - operator
         permissionVersion: v1
 
+    - name: blog
+      policy: apps/examples/blog/policies/blog.policy.yaml
+      topology: apps/examples/blog/topology/blog.topology.yaml
+      defaultAuth:
+        uid: u_5001
+        tenantId: tenant_blog
+        roles:
+          - editor
+        permissionVersion: v1
+
     - name: ros2-bridge
       policy: apps/examples/ros2-bridge/policies/ros2-bridge.policy.yaml
       topology: apps/examples/ros2-bridge/topology/ros2-bridge.topology.yaml
@@ -84,6 +94,15 @@ gateway:
         roles:
           - operator
 
+      - app: blog
+        uid: u_5001
+        tenantId: tenant_blog
+        email: editor@blog.demo
+        password: demo123
+        displayName: Blog Editor
+        roles:
+          - editor
+
       - app: ros2-bridge
         uid: u_3001
         tenantId: tenant_robotics
@@ -103,7 +122,32 @@ gateway:
           - member
 
   modules:
+    blog:
+      allowAnonymousAppAccess: true
+      posts:
+        - id: post_0001
+          tenantId: tenant_blog
+          authorUid: u_5001
+          authorName: Blog Editor
+          title: Welcome to the Bladb blog example
+          slug: welcome-to-the-bladb-blog-example
+          summary: A seeded article that demonstrates list and mine flows.
+          body: This example shows how db.user and db.mongo can power a small content workflow.
+          published: true
+          createdAt: 2026-05-06T08:00:00Z
+        - id: post_0002
+          tenantId: tenant_blog
+          authorUid: u_5001
+          authorName: Blog Editor
+          title: Drafting with tenant-aware storage
+          slug: drafting-with-tenant-aware-storage
+          summary: A second post to make the public list feel real.
+          body: The local runtime keeps ownership, tenancy, and ordering inside the trusted path.
+          published: true
+          createdAt: 2026-05-06T09:30:00Z
+
     flashSale:
+      allowAnonymousAppAccess: true
       item:
         id: item_001
         sku: camera-pro
@@ -170,6 +214,7 @@ gateway:
           ts: 2026-05-04T19:11:42Z
 
     ros2:
+      allowAnonymousAppAccess: true
       backendBaseUrl: http://ros2-backend:8080
       robots:
         - id: robot-001

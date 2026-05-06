@@ -1,13 +1,13 @@
-import { TENANT_ID, UID, type GatewaySessionState } from "@bladb/client";
-import { useGatewaySession, useLiveValue, useMutation, useQuery } from "@bladb/react";
+import { TENANT_ID, UID } from "@bladb/client";
+import { useLiveValue, useMutation, useQuery } from "@bladb/react";
 import { useEffect, useState } from "react";
 import {
   db,
   ros2Api,
   subscribeRos2Topic,
-  type Ros2Message,
-  type Ros2Session
+  type Ros2Message
 } from "./bladb";
+import { ExampleSuiteNav } from "../../shared/ExampleSuiteNav";
 
 type RouteTab = "publish" | "subscribe";
 
@@ -21,141 +21,10 @@ interface LatestSnapshot {
 }
 
 export default function App() {
-  const auth = useGatewaySession<Ros2Session>(db.user);
-
-  if (!auth.ready && !auth.session) {
-    return (
-      <main className="page auth-page">
-        <section className="hero">
-          <p className="eyebrow">Robotics bridge demo</p>
-          <h1>ROS2 Operator Console</h1>
-          <p className="lede">Restoring robotics operator session...</p>
-        </section>
-      </main>
-    );
-  }
-
-  if (!auth.session) {
-    return <Ros2Auth auth={auth} />;
-  }
-
-  return <Ros2Dashboard onLogout={auth.logout} session={auth.session} />;
+  return <Ros2Dashboard />;
 }
 
-function Ros2Auth({
-  auth
-}: {
-  auth: GatewaySessionState<Ros2Session>;
-}) {
-  const [loginEmail, setLoginEmail] = useState("operator@ros2.demo");
-  const [loginPassword, setLoginPassword] = useState("demo123");
-  const [registerName, setRegisterName] = useState("Robot Operator");
-  const [registerEmail, setRegisterEmail] = useState("new-operator@ros2.demo");
-  const [registerPassword, setRegisterPassword] = useState("demo123");
-  const [error, setError] = useState<string | null>(null);
-
-  const login = useMutation(async () => {
-    return await auth.login({
-      app: "ros2-bridge",
-      email: loginEmail,
-      password: loginPassword
-    });
-  });
-
-  const register = useMutation(async () => {
-    return await auth.register({
-      app: "ros2-bridge",
-      email: registerEmail,
-      password: registerPassword,
-      displayName: registerName
-    });
-  });
-
-  const wrap = async (runner: () => Promise<unknown>) => {
-    setError(null);
-    try {
-      await runner();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unknown auth error");
-    }
-  };
-
-  return (
-    <main className="page auth-page">
-      <section className="hero">
-        <p className="eyebrow">Robotics bridge demo</p>
-        <h1>ROS2 Operator Console</h1>
-        <p className="lede">
-          Login first, then publish and subscriber pages will stay tenant-scoped while still
-          looking close to native ROS2 topic workflows.
-        </p>
-      </section>
-
-      <section className="auth-grid">
-        <article className="panel accent">
-          <span className="label">Demo sign-in</span>
-          <h2>Login</h2>
-          <p className="muted">
-            Seed account: <code>operator@ros2.demo</code> / <code>demo123</code>
-          </p>
-          <label className="field">
-            <span>Email</span>
-            <input onChange={(event) => setLoginEmail(event.target.value)} value={loginEmail} />
-          </label>
-          <label className="field">
-            <span>Password</span>
-            <input
-              onChange={(event) => setLoginPassword(event.target.value)}
-              type="password"
-              value={loginPassword}
-            />
-          </label>
-          <button className="primary" disabled={login.loading} onClick={() => void wrap(login.run)}>
-            {login.loading ? "Signing in..." : "Login"}
-          </button>
-        </article>
-
-        <article className="panel">
-          <span className="label">New operator</span>
-          <h2>Register</h2>
-          <label className="field">
-            <span>Display name</span>
-            <input onChange={(event) => setRegisterName(event.target.value)} value={registerName} />
-          </label>
-          <label className="field">
-            <span>Email</span>
-            <input onChange={(event) => setRegisterEmail(event.target.value)} value={registerEmail} />
-          </label>
-          <label className="field">
-            <span>Password</span>
-            <input
-              onChange={(event) => setRegisterPassword(event.target.value)}
-              type="password"
-              value={registerPassword}
-            />
-          </label>
-          <button
-            className="primary secondary"
-            disabled={register.loading}
-            onClick={() => void wrap(register.run)}
-          >
-            {register.loading ? "Creating..." : "Register"}
-          </button>
-        </article>
-      </section>
-
-      {error ? <p className="banner banner-error">{error}</p> : null}
-    </main>
-  );
-}
-
-function Ros2Dashboard({
-  session,
-  onLogout
-}: {
-  session: Ros2Session;
-  onLogout: () => void;
-}) {
+function Ros2Dashboard() {
   const [tab, setTab] = useState<RouteTab>("publish");
   const [selectedTopic, setSelectedTopic] = useState("cmd_vel");
 
@@ -181,30 +50,41 @@ function Ros2Dashboard({
 
   return (
     <main className="page">
+      <ExampleSuiteNav currentApp="ros2-bridge" />
+
       <section className="hero hero-row">
         <div>
           <p className="eyebrow">Robotics bridge demo</p>
           <h1>ROS2 Operator Console</h1>
           <p className="lede">
-            Signed in as <strong>{session.user.displayName}</strong>. The browser can publish and
-            read topic snapshots without direct wildcard broker access.
+            Anonymous example mode is enabled. The browser can publish and read tenant-scoped ROS2
+            topic snapshots without stopping at a login screen.
           </p>
+          <div className="hero-notes">
+            <article className="hero-note">
+              <span>Publish path</span>
+              <strong>`POST /apps/ros2-bridge/messages`</strong>
+              <p>The browser sends a topic intent and payload while the backend owns tenant prefixing and actor stamping.</p>
+            </article>
+            <article className="hero-note">
+              <span>Read path</span>
+              <strong>`/apps/ros2-bridge/*` surfaces</strong>
+              <p>Latest snapshot, recent history, and live subscribe updates stay on app-owned routes instead of raw bridge access.</p>
+            </article>
+          </div>
         </div>
         <div className="session-card">
-          <span className="label">Operator session</span>
-          <strong>{session.user.email}</strong>
-          <small>{session.user.uid}</small>
-          <small>{session.user.tenantId}</small>
-          <button className="ghost" onClick={onLogout}>
-            Logout
-          </button>
+          <span className="label">Example identity</span>
+          <strong>Robot Operator</strong>
+          <small>operator@ros2.demo</small>
+          <small>u_3001 / tenant_robotics</small>
         </div>
       </section>
 
       <section className="stats">
         <article className="panel accent">
           <span className="label">Namespace</span>
-          <p className="metric">{session.user.tenantId}</p>
+          <p className="metric">tenant_robotics</p>
           <p className="muted">Every ROS2 topic is bound to the current tenant namespace.</p>
         </article>
 
@@ -212,6 +92,45 @@ function Ros2Dashboard({
           <span className="label">Active topic</span>
           <h2>{selectedTopic}</h2>
           <p className="muted">Robot-scoped topic history is filtered in Rust before it reaches the UI.</p>
+        </article>
+      </section>
+
+      <section className="stats">
+        <article className="panel">
+          <span className="label">What this page demonstrates</span>
+          <h2>Anonymous ROS2 bridge UX</h2>
+          <p className="muted">
+            Frontend teams can publish and inspect ROS2-style messages immediately, while the Rust
+            bridge still controls tenant prefixing, topic allowlists, and actor stamping.
+          </p>
+        </article>
+
+        <article className="panel">
+          <span className="label">Module path</span>
+          <h2>App API plus filtered subscribe stream</h2>
+          <p className="muted">
+            Publishing goes through `POST /apps/ros2-bridge/messages`. History, latest snapshot,
+            and the realtime topic feed all stay on the app-owned `/apps/ros2-bridge/*` surface.
+          </p>
+        </article>
+
+        <article className="panel panel-code">
+          <span className="label">SDK shape</span>
+          <h2>Frontend mental model</h2>
+          <pre className="code-block">{`await ros2Api.publishMessage({ robotId, topicName, messageType, payload })
+const latest = await ros2Api.latestMessage(topicName)
+const recent = await ros2Api.recentMessages(topicName)
+const stream = subscribeRos2Topic(topicName, onMessage)`}</pre>
+        </article>
+
+        <article className="panel">
+          <span className="label">Backend ownership</span>
+          <h2>Trusted bridge responsibilities</h2>
+          <ul className="stack-list">
+            <li>Tenant-scoped topic names are assembled by the backend, not by the browser alone.</li>
+            <li>`issuedBy` and other trusted actor details come from runtime identity, not page input.</li>
+            <li>Latest snapshot and stream routes stay filtered before they reach frontend consumers.</li>
+          </ul>
         </article>
       </section>
 
@@ -228,7 +147,6 @@ function Ros2Dashboard({
         <PublishPage
           defaultTopic={selectedTopic}
           onTopicChange={setSelectedTopic}
-          session={session}
         />
       ) : (
         <SubscribePage
@@ -237,7 +155,6 @@ function Ros2Dashboard({
           onTopicChange={setSelectedTopic}
           recentMessages={recentMessages.data ?? []}
           selectedTopic={selectedTopic}
-          session={session}
         />
       )}
     </main>
@@ -246,12 +163,10 @@ function Ros2Dashboard({
 
 function PublishPage({
   defaultTopic,
-  onTopicChange,
-  session
+  onTopicChange
 }: {
   defaultTopic: string;
   onTopicChange: (topic: string) => void;
-  session: Ros2Session;
 }) {
   const [robotId, setRobotId] = useState("robot-001");
   const [topicName, setTopicName] = useState(defaultTopic);
@@ -276,7 +191,7 @@ function PublishPage({
           y: 0,
           z: Number(angularZ)
         },
-        tenantId: session.user.tenantId,
+        tenantId: "tenant_robotics",
         issuedBy: UID
       }
     });
@@ -324,7 +239,7 @@ function PublishPage({
         <h2>What the backend still controls</h2>
         <ul className="stack-list">
           <li>Topic path is always tenant-prefixed before it hits the ROS2 bridge.</li>
-          <li>`issuedBy` is stamped from the session, not trusted from browser input.</li>
+          <li>`issuedBy` is stamped from the trusted runtime identity, not browser input.</li>
           <li>Frontend only chooses robot, topic, message type, and payload content.</li>
         </ul>
       </article>
@@ -333,14 +248,12 @@ function PublishPage({
 }
 
 function SubscribePage({
-  session,
   selectedTopic,
   onTopicChange,
   latestFromApp,
   latestSnapshot,
   recentMessages
 }: {
-  session: Ros2Session;
   selectedTopic: string;
   onTopicChange: (topic: string) => void;
   latestFromApp: Ros2Message | null | undefined;
@@ -372,11 +285,11 @@ function SubscribePage({
           </div>
           <div>
             <small>Latest robot</small>
-            <p>{streamMessage?.robotId ?? latestSnapshot?.robotId ?? "--"}</p>
+            <p>{streamMessage?.robotId ?? latestFromApp?.robotId ?? latestSnapshot?.robotId ?? "--"}</p>
           </div>
           <div>
             <small>Issued by</small>
-            <p>{streamMessage?.issuedBy ?? latestSnapshot?.issuedBy ?? session.user.uid}</p>
+            <p>{streamMessage?.issuedBy ?? latestFromApp?.issuedBy ?? latestSnapshot?.issuedBy ?? "u_3001"}</p>
           </div>
         </div>
         <pre className="code-block">

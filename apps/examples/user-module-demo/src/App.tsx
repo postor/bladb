@@ -1,18 +1,19 @@
-import { useGatewaySession, useMutation } from "@bladb/react";
+import { useMutation, useUserSession } from "@bladb/react";
 import { useState } from "react";
 import {
   USER_MODULE_DEMO_APP,
   describeSessionEnvelope,
   describeSessionFacts,
   describeVerificationChecklist,
-  userDemoDb,
+  userDemoUser,
   type UserModuleDemoSession
 } from "./bladb";
+import { ExampleSuiteNav } from "../../shared/ExampleSuiteNav";
 
 type AuthMode = "login" | "register";
 
 export default function App() {
-  const sessionState = useGatewaySession<UserModuleDemoSession>(userDemoDb.user);
+  const sessionState = useUserSession<UserModuleDemoSession>(userDemoUser);
 
   if (!sessionState.ready && !sessionState.session) {
     return (
@@ -31,6 +32,7 @@ export default function App() {
 
   return (
     <main className="shell">
+      <ExampleSuiteNav currentApp="user-module-demo" />
       <Hero sessionState={sessionState} />
       <section className="workspace">
         <AuthSurface sessionState={sessionState} />
@@ -64,6 +66,22 @@ function Hero({
             browser flow validates session storage, gateway identity resolution, and app-scoped
             user behavior.
           </p>
+        </div>
+
+        <div className="sdk-surface">
+          <article className="sdk-card">
+            <p className="eyebrow">Frontend contract</p>
+            <pre>{`await db.user.login({ app, email, password })
+await db.user.me()
+await db.user.logout()`}</pre>
+          </article>
+          <article className="sdk-card">
+            <p className="eyebrow">When to use this page</p>
+            <p>
+              Open this workbench after the anonymous demos and `blog` when you want to verify the
+              standalone session API by itself, without other business-module concerns mixed in.
+            </p>
+          </article>
         </div>
       </div>
 
@@ -260,6 +278,17 @@ function AuthSurface({
           <li>`db.user.me()` resolves the same signed-in member without a separate app client.</li>
           <li>`db.user.logout()` clears the local snapshot and leaves the page in a clean signed-out state.</li>
         </ul>
+      </article>
+
+      <article className="panel panel-soft">
+        <p className="eyebrow">How app developers use it</p>
+        <h2>Suggested integration order</h2>
+        <ol className="ordered-list">
+          <li>Use `login` or `register` to mint the browser session for an app scope.</li>
+          <li>Use `me` on startup or refresh to re-hydrate that session from stored credentials.</li>
+          <li>Pass the resulting session into other module calls that require user context.</li>
+          <li>Use `logout` to clear both the local token and the in-memory user snapshot.</li>
+        </ol>
       </article>
     </section>
   );

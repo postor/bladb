@@ -6,6 +6,7 @@ import {
   type CommandEvent,
   type PublishCommandResult
 } from "./bladb";
+import { ExampleSuiteNav } from "../../shared/ExampleSuiteNav";
 
 const isAuthExpiredError = (error: unknown): error is BladbError =>
   error instanceof BladbError && error.status === 401 && error.code === "AUTH_EXPIRED";
@@ -87,6 +88,8 @@ function IotDashboard() {
 
   return (
     <main className="page">
+      <ExampleSuiteNav currentApp="iot-realtime" />
+
       <section className="hero hero-row">
         <div>
           <p className="eyebrow">Realtime telemetry demo</p>
@@ -95,6 +98,18 @@ function IotDashboard() {
             Anonymous example mode is enabled. Reads and command flows currently use the IoT
             runtime default identity so the page is directly usable without logging in.
           </p>
+          <div className="hero-notes">
+            <article className="hero-note">
+              <span>Read path</span>
+              <strong>`GET /apps/iot-realtime/devices`</strong>
+              <p>The browser opens directly into tenant-scoped device and telemetry reads through app-owned routes.</p>
+            </article>
+            <article className="hero-note">
+              <span>Command path</span>
+              <strong>`POST /apps/iot-realtime/commands`</strong>
+              <p>The browser chooses a device action while the backend owns MQTT topic generation and delivery shape.</p>
+            </article>
+          </div>
         </div>
         <div className="session-card">
           <span className="label">Example identity</span>
@@ -117,6 +132,46 @@ function IotDashboard() {
           <p className="muted">
             MQTT stream: {streamState === "live" ? "subscribed" : streamState === "connecting" ? "connecting..." : "reconnect needed"}
           </p>
+        </article>
+      </section>
+
+      <section className="stats">
+        <article className="panel">
+          <span className="label">What this page demonstrates</span>
+          <h2>Anonymous control room</h2>
+          <p className="muted">
+            This example opens directly, reads tenant-scoped device state, and sends allowed
+            commands through the module app API while the backend owns MQTT topic generation.
+          </p>
+        </article>
+
+        <article className="panel">
+          <span className="label">Module path</span>
+          <h2>Read state, emit commands, watch events</h2>
+          <p className="muted">
+            The browser reads devices and telemetry, publishes `reboot` through
+            `POST /apps/iot-realtime/commands`, then waits for the first stream event from the
+            module-owned realtime route.
+          </p>
+        </article>
+
+        <article className="panel panel-code">
+          <span className="label">SDK shape</span>
+          <h2>Frontend mental model</h2>
+          <pre className="code-block">{`const devices = await iotGuestApi.devices()
+const telemetry = await iotGuestApi.telemetry(deviceId)
+await iotGuestApi.publishCommand({ deviceId, action: "reboot" })
+await iotGuestApi.commandEvents(deviceId, handlers)`}</pre>
+        </article>
+
+        <article className="panel">
+          <span className="label">Backend ownership</span>
+          <h2>What still stays trusted</h2>
+          <ul className="stack-list">
+            <li>Tenant identity and device scope come from trusted runtime configuration.</li>
+            <li>MQTT topics are assembled server-side instead of trusting the browser to build them.</li>
+            <li>The stream route exposes filtered delivery events rather than raw broker access.</li>
+          </ul>
         </article>
       </section>
 

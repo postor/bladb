@@ -17,6 +17,26 @@ services:
     expose:
       - "8080"
 
+  examples-portal:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        APP_DIR: apps/examples/examples-portal
+        VITE_BLADB_URL: /api
+        VITE_EXAMPLE_PORTAL_URL: ${BLADB_EXAMPLES_PORTAL_URL:-http://127.0.0.1:4172}
+        VITE_EXAMPLE_FLASH_SALE_URL: ${BLADB_FLASH_SALE_URL:-http://127.0.0.1:4173}
+        VITE_EXAMPLE_BLOG_URL: ${BLADB_BLOG_URL:-http://127.0.0.1:4174}
+        VITE_EXAMPLE_IOT_URL: ${BLADB_IOT_URL:-http://127.0.0.1:4175}
+        VITE_EXAMPLE_ROS2_URL: ${BLADB_ROS2_URL:-http://127.0.0.1:4176}
+        VITE_EXAMPLE_USER_MODULE_DEMO_URL: ${BLADB_USER_MODULE_DEMO_URL:-http://127.0.0.1:4177}
+        VITE_EXAMPLE_ROS2_BACKEND_URL: ${BLADB_ROS2_BACKEND_URL:-http://127.0.0.1:8080}
+    depends_on:
+      - gateway
+      - ros2-backend
+    expose:
+      - "80"
+
   flash-sale:
     build:
       context: ..
@@ -24,6 +44,30 @@ services:
       args:
         APP_DIR: apps/examples/flash-sale
         VITE_BLADB_URL: /api
+        VITE_EXAMPLE_PORTAL_URL: ${BLADB_EXAMPLES_PORTAL_URL:-http://127.0.0.1:4172}
+        VITE_EXAMPLE_FLASH_SALE_URL: ${BLADB_FLASH_SALE_URL:-http://127.0.0.1:4173}
+        VITE_EXAMPLE_BLOG_URL: ${BLADB_BLOG_URL:-http://127.0.0.1:4174}
+        VITE_EXAMPLE_IOT_URL: ${BLADB_IOT_URL:-http://127.0.0.1:4175}
+        VITE_EXAMPLE_ROS2_URL: ${BLADB_ROS2_URL:-http://127.0.0.1:4176}
+        VITE_EXAMPLE_USER_MODULE_DEMO_URL: ${BLADB_USER_MODULE_DEMO_URL:-http://127.0.0.1:4177}
+    depends_on:
+      - gateway
+    expose:
+      - "80"
+
+  blog:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        APP_DIR: apps/examples/blog
+        VITE_BLADB_URL: /api
+        VITE_EXAMPLE_PORTAL_URL: ${BLADB_EXAMPLES_PORTAL_URL:-http://127.0.0.1:4172}
+        VITE_EXAMPLE_FLASH_SALE_URL: ${BLADB_FLASH_SALE_URL:-http://127.0.0.1:4173}
+        VITE_EXAMPLE_BLOG_URL: ${BLADB_BLOG_URL:-http://127.0.0.1:4174}
+        VITE_EXAMPLE_IOT_URL: ${BLADB_IOT_URL:-http://127.0.0.1:4175}
+        VITE_EXAMPLE_ROS2_URL: ${BLADB_ROS2_URL:-http://127.0.0.1:4176}
+        VITE_EXAMPLE_USER_MODULE_DEMO_URL: ${BLADB_USER_MODULE_DEMO_URL:-http://127.0.0.1:4177}
     depends_on:
       - gateway
     expose:
@@ -36,6 +80,12 @@ services:
       args:
         APP_DIR: apps/examples/iot-realtime
         VITE_BLADB_URL: /api
+        VITE_EXAMPLE_PORTAL_URL: ${BLADB_EXAMPLES_PORTAL_URL:-http://127.0.0.1:4172}
+        VITE_EXAMPLE_FLASH_SALE_URL: ${BLADB_FLASH_SALE_URL:-http://127.0.0.1:4173}
+        VITE_EXAMPLE_BLOG_URL: ${BLADB_BLOG_URL:-http://127.0.0.1:4174}
+        VITE_EXAMPLE_IOT_URL: ${BLADB_IOT_URL:-http://127.0.0.1:4175}
+        VITE_EXAMPLE_ROS2_URL: ${BLADB_ROS2_URL:-http://127.0.0.1:4176}
+        VITE_EXAMPLE_USER_MODULE_DEMO_URL: ${BLADB_USER_MODULE_DEMO_URL:-http://127.0.0.1:4177}
     depends_on:
       - gateway
     expose:
@@ -48,6 +98,12 @@ services:
       args:
         APP_DIR: apps/examples/ros2-bridge
         VITE_BLADB_URL: /api
+        VITE_EXAMPLE_PORTAL_URL: ${BLADB_EXAMPLES_PORTAL_URL:-http://127.0.0.1:4172}
+        VITE_EXAMPLE_FLASH_SALE_URL: ${BLADB_FLASH_SALE_URL:-http://127.0.0.1:4173}
+        VITE_EXAMPLE_BLOG_URL: ${BLADB_BLOG_URL:-http://127.0.0.1:4174}
+        VITE_EXAMPLE_IOT_URL: ${BLADB_IOT_URL:-http://127.0.0.1:4175}
+        VITE_EXAMPLE_ROS2_URL: ${BLADB_ROS2_URL:-http://127.0.0.1:4176}
+        VITE_EXAMPLE_USER_MODULE_DEMO_URL: ${BLADB_USER_MODULE_DEMO_URL:-http://127.0.0.1:4177}
     depends_on:
       - gateway
       - ros2-backend
@@ -61,6 +117,12 @@ services:
       args:
         APP_DIR: apps/examples/user-module-demo
         VITE_BLADB_URL: /api
+        VITE_EXAMPLE_PORTAL_URL: ${BLADB_EXAMPLES_PORTAL_URL:-http://127.0.0.1:4172}
+        VITE_EXAMPLE_FLASH_SALE_URL: ${BLADB_FLASH_SALE_URL:-http://127.0.0.1:4173}
+        VITE_EXAMPLE_BLOG_URL: ${BLADB_BLOG_URL:-http://127.0.0.1:4174}
+        VITE_EXAMPLE_IOT_URL: ${BLADB_IOT_URL:-http://127.0.0.1:4175}
+        VITE_EXAMPLE_ROS2_URL: ${BLADB_ROS2_URL:-http://127.0.0.1:4176}
+        VITE_EXAMPLE_USER_MODULE_DEMO_URL: ${BLADB_USER_MODULE_DEMO_URL:-http://127.0.0.1:4177}
     depends_on:
       - gateway
     expose:

@@ -69,6 +69,13 @@ code {
   gap: 16px;
 }
 
+.hero-notes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
 .double-grid,
 .auth-grid {
   display: grid;
@@ -93,8 +100,47 @@ code {
   backdrop-filter: blur(12px);
 }
 
+.hero-note {
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(92, 65, 28, 0.12);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.hero-note span,
+.hero-note strong {
+  display: block;
+}
+
+.hero-note span {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 12px;
+  color: #7c5a2c;
+}
+
+.hero-note strong {
+  margin-top: 8px;
+}
+
+.hero-note p {
+  margin: 10px 0 0;
+  color: #694d25;
+  line-height: 1.6;
+}
+
 .panel-accent {
   background: linear-gradient(135deg, rgba(255, 214, 102, 0.94), rgba(255, 247, 214, 0.95));
+}
+
+.panel-code {
+  background: linear-gradient(160deg, rgba(27, 26, 23, 0.96), rgba(42, 40, 35, 0.94));
+  color: #fff7e7;
+}
+
+.panel-code .label,
+.panel-code h2 {
+  color: inherit;
 }
 
 .metric {
@@ -104,6 +150,13 @@ code {
 }
 
 .muted {
+  color: #694d25;
+  line-height: 1.6;
+}
+
+.stack-list {
+  margin: 16px 0 0;
+  padding-left: 18px;
   color: #694d25;
   line-height: 1.6;
 }
@@ -210,6 +263,13 @@ code {
   gap: 12px;
 }
 
+.code-block {
+  margin: 14px 0 0;
+  white-space: pre-wrap;
+  color: #fff7e7;
+  line-height: 1.6;
+}
+
 .ticket-meta {
   display: flex;
   gap: 16px;
@@ -247,6 +307,10 @@ code {
   .action-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .hero-notes {
+    grid-template-columns: 1fr;
   }
 
   .double-grid {

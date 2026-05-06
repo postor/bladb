@@ -59,7 +59,8 @@ body {
 .stats,
 .layout,
 .auth-grid,
-.double-grid {
+.double-grid,
+.hero-notes {
   display: grid;
   gap: 16px;
 }
@@ -67,6 +68,11 @@ body {
 .stats {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   margin-bottom: 16px;
+}
+
+.hero-notes {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 18px;
 }
 
 .layout {
@@ -90,8 +96,42 @@ body {
   backdrop-filter: blur(12px);
 }
 
+.hero-note {
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(54, 46, 37, 0.1);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.hero-note span,
+.hero-note strong {
+  display: block;
+}
+
+.hero-note span {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 12px;
+  color: #8d4d32;
+}
+
+.hero-note strong {
+  margin-top: 8px;
+}
+
+.hero-note p {
+  margin: 10px 0 0;
+  color: #5c4b3f;
+  line-height: 1.6;
+}
+
 .accent {
   background: linear-gradient(135deg, rgba(255, 157, 112, 0.85), rgba(255, 241, 232, 0.96));
+}
+
+.panel-code .label,
+.panel-code h2 {
+  color: inherit;
 }
 
 .metric {
@@ -231,6 +271,8 @@ body {
   background: #17222b;
   color: #f3f7fb;
   overflow: auto;
+  white-space: pre-wrap;
+  line-height: 1.6;
 }
 
 code {
@@ -243,6 +285,10 @@ code {
   }
 
   .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-notes {
     grid-template-columns: 1fr;
   }
 }

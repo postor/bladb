@@ -1,0 +1,37 @@
+auth:
+  jwt:
+    claims:
+      UID: uid
+      TENANT_ID: tenantId
+      ROLES: roles
+
+policies:
+  - name: blog.posts.list-published
+    match:
+      engine: mongo
+      collection: posts
+      action: find
+    enforce:
+      query:
+        tenantId: "{TENANT_ID}"
+        published: true
+
+  - name: blog.posts.list-mine
+    match:
+      engine: mongo
+      collection: posts
+      action: find
+    enforce:
+      query:
+        tenantId: "{TENANT_ID}"
+        authorUid: "{UID}"
+
+  - name: blog.posts.create
+    match:
+      engine: mongo
+      collection: posts
+      action: insertOne
+    enforce:
+      fields:
+        tenantId: "{TENANT_ID}"
+        authorUid: "{UID}"

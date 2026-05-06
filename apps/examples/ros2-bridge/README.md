@@ -42,8 +42,8 @@ The browser never gets wildcard broker access. It only reaches topic history and
 ## Browser verification
 
 1. Start the example stack with `pnpm dev:examples`.
-2. Open `http://127.0.0.1:4175`.
-3. Login with `operator@ros2.demo` / `demo123`.
+2. Open `http://127.0.0.1:4176`.
+3. Confirm the page opens directly in anonymous example mode.
 4. On `Publish Page`, keep topic `cmd_vel` and click `ros2 publish`.
 5. Switch to `Subscribe Page`.
 6. Confirm the page updates all of the following for `cmd_vel`:
@@ -51,17 +51,16 @@ The browser never gets wildcard broker access. It only reaches topic history and
    - `Latest robot`
    - payload preview
    - `Recent messages`
-7. Click `Logout` and confirm the login screen returns.
 
 ## CLI verification
 
 - Run `pnpm smoke:examples:local` against the already-running stack.
 - That smoke run covers:
-  - auth and `/users/*` alias login
-  - `POST /apps/ros2-bridge/messages`
-  - `GET /apps/ros2-bridge/messages/:topicName/stream` first-event delivery
-  - `GET /apps/ros2-bridge/messages/:topicName/latest`
-  - `GET /apps/ros2-bridge/messages/:topicName`
+  - anonymous `POST /apps/ros2-bridge/messages`
+  - anonymous `GET /apps/ros2-bridge/messages/:topicName/stream` first-event delivery
+  - anonymous `GET /apps/ros2-bridge/messages/:topicName/latest`
+  - anonymous `GET /apps/ros2-bridge/messages/:topicName`
+  - dedicated `/users/*` alias verification on auth-focused examples
 
 ## Why this split matters
 

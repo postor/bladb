@@ -11,6 +11,7 @@ use std::{
 
 pub struct Ros2Module {
     state: Mutex<Ros2State>,
+    allow_anonymous_app_access: bool,
 }
 
 pub enum Ros2Subscription {
@@ -29,6 +30,8 @@ pub struct Ros2ModuleConfig {
     pub messages: Vec<Ros2MessageConfig>,
     #[serde(default)]
     pub backend_base_url: Option<String>,
+    #[serde(default)]
+    pub allow_anonymous_app_access: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,6 +246,7 @@ impl Ros2Module {
                 },
             ],
             backend_base_url: None,
+            allow_anonymous_app_access: true,
         })
     }
 
@@ -256,6 +260,7 @@ impl Ros2Module {
                 subscribers: vec![],
                 backend_base_url: config.backend_base_url,
             }),
+            allow_anonymous_app_access: config.allow_anonymous_app_access,
         }
     }
 
@@ -265,7 +270,7 @@ impl Ros2Module {
 
     pub(crate) fn open_message_stream(
         &self,
-        session: &crate::local::auth::AuthSession,
+        session: Option<&crate::local::auth::AuthSession>,
         path: &str,
     ) -> Result<Option<Ros2Subscription>, AppError> {
         if !Self::can_stream_path(path) {
@@ -289,6 +294,8 @@ impl Ros2Module {
             }));
         }
 
+        let session = self.require_session(session)?;
+
         let (sender, receiver) = mpsc::channel();
         state.subscribers.push(Ros2Subscriber {
             tenant_id: session.user.tenant_id.clone(),
@@ -296,6 +303,27 @@ impl Ros2Module {
             sender,
         });
         Ok(Some(Ros2Subscription::Local(receiver)))
+    }
+
+    fn require_session<'a>(
+        &self,
+        session: Option<&'a crate::local::auth::AuthSession>,
+    ) -> Result<&'a crate::local::auth::AuthSession, AppError> {
+        let session = session.ok_or_else(|| {
+            if self.allow_anonymous_app_access {
+                AppError::internal("ros2 anonymous identity was not resolved by the gateway")
+            } else {
+                AppError::unauthorized("missing bearer token")
+            }
+        })?;
+
+        if session.user.app != "ros2-bridge" {
+            return Err(AppError::unauthorized(
+                "ros2 bridge app api requires a ros2-bridge session",
+            ));
+        }
+
+        Ok(session)
     }
 
     fn ensure_allowed_topic(state: &Ros2State, topic_name: &str) -> Result<(), RuntimeError> {
@@ -312,13 +340,16 @@ impl Ros2Module {
         state: &'a Ros2State,
         tenant_id: &str,
         uid: &str,
+        anonymous: bool,
         robot_id: &str,
     ) -> Result<&'a Ros2RobotConfig, RuntimeError> {
         state
             .robots
             .iter()
             .find(|robot| {
-                robot.id == robot_id && robot.tenant_id == tenant_id && robot.owner_uid == uid
+                robot.id == robot_id
+                    && robot.tenant_id == tenant_id
+                    && (anonymous || robot.owner_uid == uid)
             })
             .ok_or_else(|| RuntimeError::not_found("robot not found for current session"))
     }
@@ -327,13 +358,14 @@ impl Ros2Module {
         state: &mut Ros2State,
         tenant_id: &str,
         uid: &str,
+        anonymous: bool,
         robot_id: &str,
         topic_name: &str,
         message_type: &str,
         payload: Value,
     ) -> Result<Value, RuntimeError> {
         Self::ensure_allowed_topic(state, topic_name)?;
-        let _robot = Self::ensure_robot_access(state, tenant_id, uid, robot_id)?;
+        let _robot = Self::ensure_robot_access(state, tenant_id, uid, anonymous, robot_id)?;
         let full_topic = format!("tenant/{tenant_id}/robots/{robot_id}/ros2/{topic_name}");
         let id = format!("ros2msg_{:04}", state.next_message_id);
         state.next_message_id += 1;
@@ -491,6 +523,7 @@ impl ModuleRuntime for Ros2Module {
                     &mut state,
                     tenant_id,
                     uid,
+                    uid.starts_with("anon_"),
                     robot_id,
                     topic_name,
                     message_type,
@@ -554,14 +587,9 @@ impl AppApiHandler for Ros2Module {
     }
 
     fn handle(&self, request: AppApiRequest) -> Result<Value, AppError> {
-        let session = request
-            .session
-            .ok_or_else(|| AppError::unauthorized("missing bearer token"))?;
-        if session.user.app != "ros2-bridge" {
-            return Err(AppError::unauthorized(
-                "ros2 bridge app api requires a ros2-bridge session",
-            ));
-        }
+        let session = self.require_session(request.session.as_ref())?;
+        let uid = session.user.uid.as_str();
+        let tenant_id = session.user.tenant_id.as_str();
 
         match (request.method.as_str(), request.path.as_str()) {
             ("POST", "/apps/ros2-bridge/messages") => {
@@ -574,12 +602,7 @@ impl AppApiHandler for Ros2Module {
                     Self::backend_base_url(&state)
                 };
                 if let Some(base_url) = backend_base_url {
-                    return Self::proxy_publish_message(
-                        &base_url,
-                        &session.user.tenant_id,
-                        &session.user.uid,
-                        body,
-                    );
+                    return Self::proxy_publish_message(&base_url, tenant_id, uid, body);
                 }
                 let robot_id = body
                     .get("robotId")
@@ -601,8 +624,9 @@ impl AppApiHandler for Ros2Module {
 
                 Self::publish_message(
                     &mut state,
-                    &session.user.tenant_id,
-                    &session.user.uid,
+                    tenant_id,
+                    uid,
+                    session.user.anonymous,
                     robot_id,
                     topic_name,
                     message_type,
@@ -619,11 +643,7 @@ impl AppApiHandler for Ros2Module {
                     return Self::proxy_recent_messages(&base_url, "cmd_vel");
                 }
                 let state = self.state.lock().map_err(AppError::lock_runtime)?;
-                Ok(Self::recent_messages(
-                    &state,
-                    &session.user.tenant_id,
-                    "cmd_vel",
-                ))
+                Ok(Self::recent_messages(&state, tenant_id, "cmd_vel"))
             }
             ("GET", path) if path.ends_with("/latest") => {
                 let topic_name = path
@@ -638,8 +658,7 @@ impl AppApiHandler for Ros2Module {
                     return Self::proxy_latest_message(&base_url, topic_name);
                 }
                 let state = self.state.lock().map_err(AppError::lock_runtime)?;
-                Self::latest_message(&state, &session.user.tenant_id, topic_name)
-                    .map_err(AppError::from)
+                Self::latest_message(&state, tenant_id, topic_name).map_err(AppError::from)
             }
             ("GET", path) => {
                 let topic_name = path.trim_start_matches("/apps/ros2-bridge/messages/");
@@ -651,11 +670,7 @@ impl AppApiHandler for Ros2Module {
                     return Self::proxy_recent_messages(&base_url, topic_name);
                 }
                 let state = self.state.lock().map_err(AppError::lock_runtime)?;
-                Ok(Self::recent_messages(
-                    &state,
-                    &session.user.tenant_id,
-                    topic_name,
-                ))
+                Ok(Self::recent_messages(&state, tenant_id, topic_name))
             }
             _ => Err(AppError::not_found(format!(
                 "unsupported app api route {} {}",
@@ -716,6 +731,7 @@ mod tests {
                 created_at: "2026-05-05T09:10:00Z".into(),
             }],
             backend_base_url: None,
+            allow_anonymous_app_access: true,
         })
     }
 
@@ -782,7 +798,19 @@ mod tests {
     }
 
     fn session() -> AuthSession {
-        let service = crate::local::auth::InMemoryAuthService::from_user_configs(vec![
+        auth_service()
+            .login("ros2-bridge", "operator@ros2.demo", "demo123")
+            .expect("ros2 session")
+    }
+
+    fn anonymous_session() -> AuthSession {
+        auth_service()
+            .ensure_anonymous_session("ros2-bridge")
+            .expect("anonymous ros2 session")
+    }
+
+    fn auth_service() -> crate::local::auth::InMemoryAuthService {
+        crate::local::auth::InMemoryAuthService::from_user_configs(vec![
             crate::local::auth::InMemoryUserConfig {
                 app: "ros2-bridge".into(),
                 uid: "u_3001".into(),
@@ -792,11 +820,7 @@ mod tests {
                 display_name: "Robot Operator".into(),
                 roles: vec!["operator".into()],
             },
-        ]);
-
-        service
-            .login("ros2-bridge", "operator@ros2.demo", "demo123")
-            .expect("ros2 session")
+        ])
     }
 
     #[test]
@@ -855,7 +879,7 @@ mod tests {
     fn ros2_module_subscribers_receive_published_messages() {
         let module = module();
         let subscription = module
-            .open_message_stream(&session(), "/apps/ros2-bridge/messages/cmd_vel/stream")
+            .open_message_stream(Some(&session()), "/apps/ros2-bridge/messages/cmd_vel/stream")
             .expect("open local ros2 stream")
             .expect("local ros2 stream");
 
@@ -896,10 +920,11 @@ mod tests {
             allowed_topics: vec!["cmd_vel".into()],
             messages: vec![],
             backend_base_url: Some("http://ros2-backend:8080".into()),
+            allow_anonymous_app_access: true,
         });
 
         let subscription = module
-            .open_message_stream(&session(), "/apps/ros2-bridge/messages/cmd_vel/stream")
+            .open_message_stream(Some(&session()), "/apps/ros2-bridge/messages/cmd_vel/stream")
             .expect("open proxy ros2 stream")
             .expect("proxy ros2 stream");
 
@@ -996,6 +1021,7 @@ mod tests {
             allowed_topics: vec!["cmd_vel".into()],
             messages: vec![],
             backend_base_url: Some(format!("http://{address}")),
+            allow_anonymous_app_access: true,
         });
 
         let response = module
@@ -1043,5 +1069,35 @@ mod tests {
         assert!(captured_body.contains("\"topicName\":\"cmd_vel\""));
         assert!(captured_body.contains("\"issuedBy\":\"u_3001\""));
         assert!(!captured_body.contains("forged-from-browser"));
+    }
+
+    #[test]
+    fn ros2_module_allows_anonymous_recent_messages_when_gateway_resolves_session() {
+        let module = module();
+        let response = module
+            .handle(AppApiRequest {
+                method: "GET".into(),
+                path: "/apps/ros2-bridge/messages/cmd_vel".into(),
+                body: None,
+                session: Some(anonymous_session()),
+            })
+            .expect("anonymous recent messages");
+
+        let rows = response.as_array().expect("recent messages array");
+        assert!(!rows.is_empty());
+        assert_eq!(rows[0]["topicName"], "cmd_vel");
+    }
+
+    #[test]
+    fn ros2_module_allows_anonymous_stream_subscription_when_gateway_resolves_session() {
+        let module = module();
+        let subscription = module
+            .open_message_stream(
+                Some(&anonymous_session()),
+                "/apps/ros2-bridge/messages/cmd_vel/stream",
+            )
+            .expect("open anonymous ros2 stream");
+
+        assert!(matches!(subscription, Some(Ros2Subscription::Local(_))));
     }
 }

@@ -77,9 +77,10 @@ fn handle_client(mut stream: TcpStream, state: &Arc<LocalGatewayApp>) -> Result<
     let path = request.path_only().to_string();
     let origin = request.header("origin").map(str::to_string);
     let bearer_token = request.header("authorization").map(str::to_string);
+    let session_cookie = app_session_cookie(&request);
     if request.method == "GET" && path.starts_with("/apps/ros2-bridge/messages/") {
         if let Some(subscription) = state
-            .open_ros2_stream(&path, bearer_token.as_deref())
+            .open_ros2_stream(&path, bearer_token.as_deref(), session_cookie.as_deref())
             .map_err(|error| error.message.clone())?
         {
             return stream_ros2_subscription(stream, subscription, origin.as_deref());
@@ -87,14 +88,13 @@ fn handle_client(mut stream: TcpStream, state: &Arc<LocalGatewayApp>) -> Result<
     }
     if request.method == "GET" && path.starts_with("/apps/iot-realtime/commands/") {
         if let Some(subscription) = state
-            .open_iot_stream(&path, bearer_token.as_deref())
+            .open_iot_stream(&path, bearer_token.as_deref(), session_cookie.as_deref())
             .map_err(|error| error.message.clone())?
         {
             return stream_iot_subscription(stream, subscription, origin.as_deref());
         }
     }
     if request.method != "OPTIONS" && path.starts_with("/apps/") {
-        let session_cookie = app_session_cookie(&request);
         let response = match parse_optional_json_body(request.body.clone()) {
             Ok(body) => match state.handle_app_api_http(
                 &request.method,

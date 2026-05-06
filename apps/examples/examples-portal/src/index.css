@@ -1,0 +1,247 @@
+:root {
+  color-scheme: light;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(255, 177, 66, 0.24), transparent 28%),
+    radial-gradient(circle at right top, rgba(33, 110, 255, 0.16), transparent 28%),
+    linear-gradient(180deg, #f7f2e8 0%, #ece5d7 54%, #e5ddcf 100%);
+  color: #1e1711;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: transparent;
+}
+
+code {
+  font-family: "IBM Plex Mono", Consolas, monospace;
+}
+
+.portal-page {
+  width: min(1220px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 36px 0 72px;
+}
+
+.hero,
+.section-grid,
+.app-grid,
+.tour-list,
+.credential-list,
+.learning-strip,
+.focus-stack,
+.module-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.hero {
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+  margin-bottom: 18px;
+}
+
+.section-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 18px;
+}
+
+.learning-strip {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 18px;
+}
+
+.hero-copy,
+.hero-card,
+.panel,
+.tour-card,
+.credential-card,
+.app-card,
+.learning-card,
+.focus-card,
+.module-card {
+  border-radius: 26px;
+  border: 1px solid rgba(55, 40, 23, 0.12);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 20px 48px rgba(55, 40, 23, 0.08);
+  backdrop-filter: blur(12px);
+}
+
+.hero-copy,
+.hero-card,
+.panel {
+  padding: 22px;
+}
+
+.learning-card,
+.focus-card,
+.module-card {
+  padding: 18px;
+}
+
+.panel-accent {
+  background: linear-gradient(165deg, rgba(255, 246, 226, 0.98), rgba(247, 233, 202, 0.92));
+}
+
+.eyebrow,
+.label,
+.app-meta span,
+.tour-card small {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.74rem;
+  color: #8a5c27;
+}
+
+.hero-copy h1 {
+  margin: 10px 0 12px;
+  font-size: clamp(3rem, 6vw, 5.2rem);
+  line-height: 0.94;
+  letter-spacing: -0.05em;
+}
+
+.lede,
+.tour-card p,
+.credential-card code,
+.app-card p,
+.learning-card p,
+.focus-card p,
+.module-card p,
+.app-card small {
+  line-height: 1.65;
+  color: #594c3f;
+}
+
+.learning-card strong,
+.focus-card strong,
+.module-card strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1rem;
+}
+
+.focus-stack,
+.module-grid {
+  margin-top: 14px;
+}
+
+.module-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.module-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.module-chip-row code {
+  color: #7a4d23;
+  background: rgba(138, 92, 39, 0.1);
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+}
+
+.fact-list {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0 0;
+}
+
+.fact-list div {
+  display: grid;
+  gap: 4px;
+}
+
+.fact-list dt {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.74rem;
+  color: #8a5c27;
+}
+
+.fact-list dd {
+  margin: 0;
+  font-weight: 600;
+  color: #2c2217;
+}
+
+.tour-list,
+.credential-list {
+  grid-template-columns: 1fr;
+  margin-top: 14px;
+}
+
+.tour-card,
+.credential-card {
+  padding: 16px;
+}
+
+.tour-card strong,
+.credential-card strong,
+.app-card strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 1rem;
+}
+
+.tour-card p,
+.app-card p {
+  margin: 8px 0 0;
+}
+
+.credential-card code {
+  display: block;
+  margin-top: 8px;
+}
+
+.app-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 16px;
+}
+
+.app-card {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  text-decoration: none;
+  color: inherit;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.app-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(138, 92, 39, 0.28);
+  box-shadow: 0 18px 38px rgba(55, 40, 23, 0.12);
+}
+
+.app-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.app-card code {
+  color: #2b4b7a;
+  word-break: break-all;
+}
+
+.app-card small {
+  display: block;
+}
+
+@media (max-width: 860px) {
+  .hero,
+  .section-grid,
+  .learning-strip {
+    grid-template-columns: 1fr;
+  }
+}

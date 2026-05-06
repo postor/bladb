@@ -1,6 +1,8 @@
 import {
   appGet,
   appPost,
+  createClient,
+  createTypedAppClient,
   createBrowserAppModule,
   type GatewaySession
 } from "@bladb/client";
@@ -44,29 +46,37 @@ export interface Ros2SubscriptionHandle {
   close(): void;
 }
 
+const ros2Routes = {
+  publishMessage: appPost<Ros2PublishInput, Ros2PublishResult>("messages"),
+  recentMessages: appGet<[string], Ros2Message[]>((topicName) => `messages/${encodeURIComponent(topicName)}`),
+  latestMessage: appGet<[string], Ros2Message | null>((topicName) => `messages/${encodeURIComponent(topicName)}/latest`)
+};
+
+export const ros2GuestDb = createClient({
+  baseUrl: BLADB_URL,
+  appAuth: "optional",
+  executeAuth: "optional"
+});
+
 export const ros2Module = createBrowserAppModule({
   baseUrl: BLADB_URL,
   appName: "ros2-bridge",
   tokenKey: ROS2_TOKEN_KEY,
   sessionKey: ROS2_SESSION_KEY,
-  routes: {
-    publishMessage: appPost<Ros2PublishInput, Ros2PublishResult>("messages"),
-    recentMessages: appGet<[string], Ros2Message[]>((topicName) => `messages/${encodeURIComponent(topicName)}`),
-    latestMessage: appGet<[string], Ros2Message | null>((topicName) => `messages/${encodeURIComponent(topicName)}/latest`)
-  }
+  routes: ros2Routes
 });
 
 export const ros2User = ros2Module.user;
 export const ros2Auth = ros2Module.auth;
-export const ros2Api = ros2Module.api;
-export const db = ros2Module.db;
+export const ros2Api = createTypedAppClient(ros2GuestDb.app("ros2-bridge"), ros2Routes);
+export const db = ros2GuestDb;
 
 export function subscribeRos2Topic(
   topicName: string,
   onMessage: (message: Ros2Message) => void
 ): Ros2SubscriptionHandle {
   const controller = new AbortController();
-  void ros2Module.db
+  void ros2GuestDb
     .app("ros2-bridge")
     .stream<Ros2Message>(`messages/${encodeURIComponent(topicName)}/stream`, {
       signal: controller.signal,

@@ -148,9 +148,19 @@ bladb/
 ### Apps
 
 - `apps/docs`: product docs, policy cookbook, SDK guides
-- `apps/examples/flash-sale`: high-concurrency stock + order demo
-- `apps/examples/iot-realtime`: massive device telemetry + realtime control demo
-- `apps/examples/ros2-bridge`: ROS2-style publish and subscribe bridge demo for browser teams
+- `apps/examples/flash-sale`: anonymous direct-entry stock + queue-order demo
+- `apps/examples/blog`: public-read plus authenticated editor demo built on `mongo + user`
+- `apps/examples/iot-realtime`: anonymous direct-entry device telemetry + command demo
+- `apps/examples/ros2-bridge`: anonymous direct-entry ROS2-style publish and subscribe bridge demo
+- `apps/examples/user-module-demo`: dedicated `db.user` login/register/me/logout verification workbench
+- `apps/examples/examples-portal`: suite home with runtime URLs, credentials, and the recommended example tour
+
+The example apps now behave as a connected suite:
+
+- the new `examples-portal` is the recommended starting point
+- each page includes shared cross-example navigation
+- navigation URLs follow the resolved local stack ports instead of assuming fixed defaults
+- the recommended progression is anonymous business flows -> mixed public/auth demo -> dedicated auth workbench
 
 ## Reserved values
 
@@ -542,10 +552,12 @@ This starts:
 
 - the Rust gateway on `127.0.0.1:8787`
 - the ros2-backend service on `127.0.0.1:8080`
+- the examples-portal app on `127.0.0.1:4172`
 - the flash-sale app on `127.0.0.1:4173`
-- the iot-realtime app on `127.0.0.1:4174`
-- the ros2-bridge app on `127.0.0.1:4175`
-- the user-module-demo app on `127.0.0.1:4176`
+- the blog app on `127.0.0.1:4174`
+- the iot-realtime app on `127.0.0.1:4175`
+- the ros2-bridge app on `127.0.0.1:4176`
+- the user-module-demo app on `127.0.0.1:4177`
 
 If one of those host ports is already occupied, `pnpm dev:examples` and `pnpm dev:examples:local` now auto-pick the next free local ports and print the resolved URLs after startup.
 
@@ -553,7 +565,9 @@ If you want to pin ports for this project, you can set any of:
 
 - `BLADB_GATEWAY_PORT`
 - `BLADB_ROS2_BACKEND_PORT`
+- `BLADB_EXAMPLES_PORTAL_PORT`
 - `BLADB_FLASH_SALE_PORT`
+- `BLADB_BLOG_PORT`
 - `BLADB_IOT_PORT`
 - `BLADB_ROS2_PORT`
 - `BLADB_USER_MODULE_DEMO_PORT`
@@ -574,6 +588,7 @@ That file owns:
 - seeded local auth users
 - official module contracts such as `modules.official.users`
 - local module seed data for flash-sale and iot
+- local module seed data for blog
 - local module seed data for ros2 publish and subscribe flows
 
 You can point the same binary at another config:
@@ -595,9 +610,10 @@ You can still run them separately if needed:
 ```txt
 pnpm dev:gateway
 pnpm --dir apps/examples/flash-sale dev --host 127.0.0.1 --port 4173
-pnpm --dir apps/examples/iot-realtime dev --host 127.0.0.1 --port 4174
-pnpm --dir apps/examples/ros2-bridge dev --host 127.0.0.1 --port 4175
-pnpm --dir apps/examples/user-module-demo dev --host 127.0.0.1 --port 4176
+pnpm --dir apps/examples/blog dev --host 127.0.0.1 --port 4174
+pnpm --dir apps/examples/iot-realtime dev --host 127.0.0.1 --port 4175
+pnpm --dir apps/examples/ros2-bridge dev --host 127.0.0.1 --port 4176
+pnpm --dir apps/examples/user-module-demo dev --host 127.0.0.1 --port 4177
 ```
 
 Smoke test the already-running stack:
@@ -608,16 +624,19 @@ pnpm smoke:examples
 
 Current local URLs:
 
+- examples portal: `http://127.0.0.1:4172`
 - flash sale: `http://127.0.0.1:4173`
-- iot realtime: `http://127.0.0.1:4174`
-- ros2 bridge: `http://127.0.0.1:4175`
-- user module demo: `http://127.0.0.1:4176`
+- blog: `http://127.0.0.1:4174`
+- iot realtime: `http://127.0.0.1:4175`
+- ros2 bridge: `http://127.0.0.1:4176`
+- user module demo: `http://127.0.0.1:4177`
 - gateway health: `http://127.0.0.1:8787/health`
 - gateway topology: `http://127.0.0.1:8787/topology`
 
 Seed credentials from the local gateway config:
 
 - flash-sale buyer: `buyer@flash-sale.demo` / `demo123`
+- blog editor: `editor@blog.demo` / `demo123`
 - iot operator: `operator@iot.demo` / `demo123`
 - ros2 operator: `operator@ros2.demo` / `demo123`
 - user-module-demo member: `member@user.demo` / `demo123`
@@ -651,15 +670,17 @@ These `/apps/*` endpoints are now module-owned application APIs, not hardcoded b
 
 ### Browser verification
 
-- `flash-sale`: open `http://127.0.0.1:4173`, login with `buyer@flash-sale.demo` / `demo123`, click `Join queue`, confirm the current ticket and queue history update, then click `Logout` and confirm the login screen returns.
-- `iot-realtime`: open `http://127.0.0.1:4174`, login with `operator@iot.demo` / `demo123`, keep `device-001` selected, click `Reboot device`, and confirm `MQTT stream: subscribed` plus `Last MQTT action`, `Last MQTT topic`, and `Delivered at` all update.
-- `ros2-bridge`: open `http://127.0.0.1:4175`, login with `operator@ros2.demo` / `demo123`, use the `Publish Page` to send `cmd_vel`, switch to `Subscribe Page`, and confirm the live stream card, payload preview, and recent messages update for that topic.
+- `examples-portal`: open `http://127.0.0.1:4172`, confirm the resolved URLs and seed credentials render, then click through into another example.
+- `flash-sale`: open `http://127.0.0.1:4173`, confirm the dashboard loads without a login wall, click `Join queue`, and confirm the current ticket and queue history update.
+- `blog`: open `http://127.0.0.1:4174`, confirm the public post list loads immediately, then login with `editor@blog.demo` / `demo123`, publish a post, and confirm it appears in both `Published posts` and `My posts`.
+- `iot-realtime`: open `http://127.0.0.1:4175`, keep `device-001` selected, click `Reboot device`, and confirm `MQTT stream: subscribed` plus `Last MQTT action`, `Last MQTT topic`, and `Delivered at` all update.
+- `ros2-bridge`: open `http://127.0.0.1:4176`, use the `Publish Page` to send `cmd_vel`, switch to `Subscribe Page`, and confirm the live stream card, payload preview, and recent messages update for that topic.
 - `user-module-demo`: open the resolved `user-module-demo` URL printed by `pnpm dev:examples`, login with `member@user.demo` / `demo123`, click `Refresh me`, register a new account, then click `Logout` and confirm the session panel returns to `Signed out`.
 
 ### CLI verification
 
 - Start the full stack with `pnpm dev:examples`.
-- Run `pnpm smoke:examples:local` to verify auth, `/users/*` aliases, example app routes, and the first live stream event for both IoT and ROS2 realtime endpoints.
+- Run `pnpm smoke:examples:local` to verify anonymous example app flows, `db.user` auth and `/users/*` aliases, blog `mongo + user` behavior, and the first live stream event for both IoT and ROS2 realtime endpoints.
 - Run `node --experimental-strip-types --test packages/client/test/browser-module.test.ts` to verify the browser module client behavior, including `db.user` and SSE keepalive handling.
 
 ## Cross-module changes

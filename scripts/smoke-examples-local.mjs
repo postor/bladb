@@ -8,30 +8,74 @@ const authTokens = new Map();
 const {
   gatewayUrl,
   ros2BackendUrl,
+  portalUrl,
   flashSaleUrl,
+  blogUrl,
   iotUrl,
   ros2Url,
   userModuleDemoUrl,
 } = resolveExampleStackUrls();
 
 const checks = [
-  () => assertJson(`${gatewayUrl}/health`, { ok: true }, "gateway health"),
-  () => assertRos2BackendHealth(),
-  () => assertTopology(),
-  () => assertAuthFlow("flash-sale", "buyer@flash-sale.demo", "demo123"),
-  () => assertAuthFlow("iot-realtime", "operator@iot.demo", "demo123"),
-  () => assertAuthFlow("ros2-bridge", "operator@ros2.demo", "demo123"),
-  () => assertAuthFlow("user-module-demo", "member@user.demo", "demo123"),
-  () => assertUserAliasFlow("flash-sale", "buyer@flash-sale.demo", "demo123"),
-  () => assertUserAliasFlow("iot-realtime", "operator@iot.demo", "demo123"),
-  () => assertUserAliasFlow("ros2-bridge", "operator@ros2.demo", "demo123"),
-  () => assertUserAliasFlow("user-module-demo", "member@user.demo", "demo123"),
-  () => assertStatus(flashSaleUrl, 200, "flash-sale app"),
-  () => assertStatus(iotUrl, 200, "iot-realtime app"),
-  () => assertStatus(ros2Url, 200, "ros2-bridge app"),
-  () => assertStatus(userModuleDemoUrl, 200, "user-module-demo app"),
-  () =>
-    assertRoute(
+  { label: "gateway health", run: () => assertJson(`${gatewayUrl}/health`, { ok: true }, "gateway health") },
+  { label: "ros2 backend health", run: () => assertRos2BackendHealth() },
+  { label: "gateway topology", run: () => assertTopology() },
+  { label: "examples-portal app", run: () => assertStatus(portalUrl, 200, "examples-portal app") },
+  { label: "flash-sale app", run: () => assertStatus(flashSaleUrl, 200, "flash-sale app") },
+  { label: "blog app", run: () => assertStatus(blogUrl, 200, "blog app") },
+  { label: "iot-realtime app", run: () => assertStatus(iotUrl, 200, "iot-realtime app") },
+  { label: "ros2-bridge app", run: () => assertStatus(ros2Url, 200, "ros2-bridge app") },
+  { label: "user-module-demo app", run: () => assertStatus(userModuleDemoUrl, 200, "user-module-demo app") },
+  {
+    label: "examples-portal suite ui",
+    run: () => assertPortalFlow(),
+  },
+  {
+    label: "flash-sale anonymous ui",
+    run: () => assertPageDoesNotContain(flashSaleUrl, /login|register/i, "flash-sale anonymous ui"),
+  },
+  {
+    label: "iot anonymous ui",
+    run: () => assertPageDoesNotContain(iotUrl, /login|register/i, "iot anonymous ui"),
+  },
+  {
+    label: "ros2 anonymous ui",
+    run: () => assertPageDoesNotContain(ros2Url, /login|register/i, "ros2 anonymous ui"),
+  },
+  {
+    label: "blog public ui",
+    run: () => assertBlogPublicFlow(),
+  },
+  {
+    label: "flash-sale auth",
+    run: () => assertAuthFlow("flash-sale", "buyer@flash-sale.demo", "demo123"),
+  },
+  {
+    label: "iot auth",
+    run: () => assertAuthFlow("iot-realtime", "operator@iot.demo", "demo123"),
+  },
+  {
+    label: "ros2 auth",
+    run: () => assertAuthFlow("ros2-bridge", "operator@ros2.demo", "demo123"),
+  },
+  {
+    label: "user-module-demo auth",
+    run: () => assertAuthFlow("user-module-demo", "member@user.demo", "demo123"),
+  },
+  {
+    label: "user-module-demo users alias",
+    run: () => assertUserAliasFlow("user-module-demo", "member@user.demo", "demo123"),
+  },
+  { label: "blog auth", run: () => assertAuthFlow("blog", "editor@blog.demo", "demo123") },
+  { label: "blog users alias", run: () => assertUserAliasFlow("blog", "editor@blog.demo", "demo123") },
+  { label: "flash-sale anonymous flow", run: () => assertAnonymousFlashSaleFlow() },
+  { label: "iot anonymous flow", run: () => assertAnonymousIotFlow() },
+  { label: "ros2 anonymous flow", run: () => assertAnonymousRos2Flow() },
+  { label: "blog mongo + user flow", run: () => assertBlogFlow() },
+  {
+    label: "flash-sale route",
+    run: () =>
+      assertRoute(
       "flash-sale route",
       "flash-sale",
       "apps/examples/flash-sale/gateway/request.orders-read.json",
@@ -40,15 +84,21 @@ const checks = [
         payload.data?.route?.cluster === "flashsale.orders-sql" &&
         payload.data?.route?.service === "bladb-module-orders",
     ),
-  () =>
-    assertExecute(
+  },
+  {
+    label: "flash-sale execute",
+    run: () =>
+      assertExecute(
       "flash-sale execute",
       "flash-sale",
       "apps/examples/flash-sale/gateway/request.orders-read.json",
       (payload) => payload.ok === true && Array.isArray(payload.data) && payload.data.length >= 1,
     ),
-  () =>
-    assertRoute(
+  },
+  {
+    label: "iot route",
+    run: () =>
+      assertRoute(
       "iot route",
       "iot-realtime",
       "apps/examples/iot-realtime/gateway/request.reboot.json",
@@ -57,8 +107,11 @@ const checks = [
         payload.data?.route?.cluster === "iot.commands-mqtt" &&
         payload.data?.route?.service === "bladb-module-iot-mqtt",
     ),
-  () =>
-    assertExecute(
+  },
+  {
+    label: "iot execute",
+    run: () =>
+      assertExecute(
       "iot execute",
       "iot-realtime",
       "apps/examples/iot-realtime/gateway/request.reboot.json",
@@ -67,8 +120,11 @@ const checks = [
         payload.data?.published === true &&
         payload.data?.topic === "tenant/tenant_a/devices/device-001/commands",
     ),
-  () =>
-    assertRoute(
+  },
+  {
+    label: "ros2 route",
+    run: () =>
+      assertRoute(
       "ros2 route",
       "ros2-bridge",
       "apps/examples/ros2-bridge/gateway/request.publish.json",
@@ -77,8 +133,11 @@ const checks = [
         payload.data?.route?.cluster === "ros2.bridge-mqtt" &&
         payload.data?.route?.service === "bladb-module-ros2-bridge",
     ),
-  () =>
-    assertExecute(
+  },
+  {
+    label: "ros2 execute",
+    run: () =>
+      assertExecute(
       "ros2 execute",
       "ros2-bridge",
       "apps/examples/ros2-bridge/gateway/request.publish.json",
@@ -87,11 +146,16 @@ const checks = [
         payload.data?.published === true &&
         payload.data?.fullTopic === "tenant/tenant_robotics/robots/robot-001/ros2/cmd_vel",
     ),
+  },
 ];
 
 try {
   for (const check of checks) {
-    await check();
+    try {
+      await check.run();
+    } catch (error) {
+      throw new Error(`${check.label} failed: ${error.message}`);
+    }
   }
 
   console.log("Example stack smoke test passed.");
@@ -104,6 +168,16 @@ async function assertStatus(url, expectedStatus, label) {
   const response = await fetch(url);
   if (response.status !== expectedStatus) {
     throw new Error(`${label} returned ${response.status}, expected ${expectedStatus}`);
+  }
+
+  console.log(`${label}: ok`);
+}
+
+async function assertPageDoesNotContain(url, pattern, label) {
+  const response = await fetch(url);
+  const html = await response.text();
+  if (pattern.test(html)) {
+    throw new Error(`${label} still contains auth shell text`);
   }
 
   console.log(`${label}: ok`);
@@ -135,7 +209,7 @@ async function assertTopology() {
   if (
     payload.ok !== true ||
     !Array.isArray(payload.data) ||
-    payload.data.length < 2 ||
+    payload.data.length < 3 ||
     payload.data[0]?.clusters?.length < 1
   ) {
     throw new Error(`gateway topology returned unexpected payload: ${JSON.stringify(payload)}`);
@@ -167,18 +241,6 @@ async function assertAuthFlow(app, email, password) {
   const mePayload = await meResponse.json();
   if (!meResponse.ok || mePayload.data?.user?.email !== email) {
     throw new Error(`${app} auth me failed: ${JSON.stringify(mePayload)}`);
-  }
-
-  if (app === "flash-sale") {
-    await assertQueueFlow(token);
-  }
-
-  if (app === "iot-realtime") {
-    await assertIotCommandHistory(token);
-  }
-
-  if (app === "ros2-bridge") {
-    await assertRos2BridgeFlow(token);
   }
 
   console.log(`${app} auth: ok`);
@@ -214,7 +276,7 @@ async function assertUserAliasFlow(app, email, password) {
 async function assertExecute(label, app, relativeRequestPath, predicate) {
   const requestPath = path.join(rootDir, relativeRequestPath);
   const body = await readFile(requestPath, "utf8");
-  const token = authTokens.get(app);
+  const token = app ? authTokens.get(app) : undefined;
   const response = await fetch(`${gatewayUrl}/execute`, {
     method: "POST",
     headers: {
@@ -232,62 +294,10 @@ async function assertExecute(label, app, relativeRequestPath, predicate) {
   console.log(`${label}: ok`);
 }
 
-async function assertQueueFlow(token) {
-  const summaryResponse = await fetch(`${gatewayUrl}/apps/flash-sale/summary`, {
-    headers: {
-      authorization: `Bearer ${token}`,
-    },
-  });
-  const summaryPayload = await summaryResponse.json();
-  if (!summaryResponse.ok || summaryPayload.data?.item?.sku !== "camera-pro") {
-    throw new Error(`flash-sale summary failed: ${JSON.stringify(summaryPayload)}`);
-  }
-
-  const enqueueResponse = await fetch(`${gatewayUrl}/apps/flash-sale/queue`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      sku: "camera-pro",
-      quantity: 1,
-    }),
-  });
-  const enqueuePayload = await enqueueResponse.json();
-  const ticketId = enqueuePayload.data?.ticketId;
-  if (!enqueueResponse.ok || !ticketId) {
-    throw new Error(`flash-sale queue enqueue failed: ${JSON.stringify(enqueuePayload)}`);
-  }
-
-  const deadline = Date.now() + 8000;
-  while (Date.now() < deadline) {
-    const statusResponse = await fetch(`${gatewayUrl}/apps/flash-sale/queue/${ticketId}`, {
-      headers: {
-        authorization: `Bearer ${token}`,
-      },
-    });
-    const statusPayload = await statusResponse.json();
-    const status = statusPayload.data?.status;
-    if (!statusResponse.ok) {
-      throw new Error(`flash-sale queue status failed: ${JSON.stringify(statusPayload)}`);
-    }
-
-    if (status === "completed" || status === "failed") {
-      console.log("flash-sale queue: ok");
-      return;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-
-  throw new Error("flash-sale queue did not settle before timeout");
-}
-
 async function assertRoute(label, app, relativeRequestPath, predicate) {
   const requestPath = path.join(rootDir, relativeRequestPath);
   const body = await readFile(requestPath, "utf8");
-  const token = authTokens.get(app);
+  const token = app ? authTokens.get(app) : undefined;
   const response = await fetch(`${gatewayUrl}/route`, {
     method: "POST",
     headers: {
@@ -305,67 +315,138 @@ async function assertRoute(label, app, relativeRequestPath, predicate) {
   console.log(`${label}: ok`);
 }
 
-async function assertIotCommandHistory(token) {
+async function assertAnonymousFlashSaleFlow() {
+  const summaryResponse = await fetch(`${gatewayUrl}/apps/flash-sale/summary`);
+  const summaryPayload = await summaryResponse.json();
+  if (!summaryResponse.ok || summaryPayload.data?.item?.sku !== "camera-pro") {
+    throw new Error(`anonymous flash-sale summary failed: ${JSON.stringify(summaryPayload)}`);
+  }
+
+  const sessionCookie = extractSessionCookie(summaryResponse, "anonymous flash-sale summary");
+  await assertAnonymousMe("flash-sale", sessionCookie, summaryPayload.data?.identity?.uid);
+
+  const enqueueResponse = await fetch(`${gatewayUrl}/apps/flash-sale/queue`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      cookie: sessionCookie,
+    },
+    body: JSON.stringify({
+      sku: "camera-pro",
+      quantity: 1,
+    }),
+  });
+  const enqueuePayload = await enqueueResponse.json();
+  const ticketId = enqueuePayload.data?.ticketId;
+  if (!enqueueResponse.ok || !ticketId) {
+    throw new Error(`anonymous flash-sale queue enqueue failed: ${JSON.stringify(enqueuePayload)}`);
+  }
+
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline) {
+    const statusResponse = await fetch(`${gatewayUrl}/apps/flash-sale/queue/${ticketId}`, {
+      headers: {
+        cookie: sessionCookie,
+      },
+    });
+    const statusPayload = await statusResponse.json();
+    const status = statusPayload.data?.status;
+    if (!statusResponse.ok) {
+      throw new Error(`anonymous flash-sale queue status failed: ${JSON.stringify(statusPayload)}`);
+    }
+
+    if (status === "completed" || status === "failed") {
+      if (statusPayload.data?.runtime?.queueCluster !== "flashsale.workflow-workers") {
+        throw new Error(`anonymous flash-sale runtime metadata failed: ${JSON.stringify(statusPayload)}`);
+      }
+      console.log("flash-sale anonymous queue: ok");
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error("anonymous flash-sale queue did not settle before timeout");
+}
+
+async function assertAnonymousIotFlow() {
+  const devicesResponse = await fetch(`${gatewayUrl}/apps/iot-realtime/devices`);
+  const devicesPayload = await devicesResponse.json();
+  if (!devicesResponse.ok || !Array.isArray(devicesPayload.data) || devicesPayload.data.length < 1) {
+    throw new Error(`anonymous iot devices failed: ${JSON.stringify(devicesPayload)}`);
+  }
+
+  const sessionCookie = extractSessionCookie(devicesResponse, "anonymous iot devices");
+  const deviceId = devicesPayload.data[0]?.id;
+  await assertAnonymousMe("iot-realtime", sessionCookie);
+
   const streamPromise = readFirstSseEvent(
-    `${gatewayUrl}/apps/iot-realtime/commands/device-001/stream`,
-    token,
+    `${gatewayUrl}/apps/iot-realtime/commands/${deviceId}/stream`,
     "mqtt-message",
+    {
+      cookie: sessionCookie,
+    },
   );
   const publishResponse = await fetch(`${gatewayUrl}/apps/iot-realtime/commands`, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${token}`,
       "content-type": "application/json",
+      cookie: sessionCookie,
     },
     body: JSON.stringify({
-      deviceId: "device-001",
+      deviceId,
       action: "reboot",
     }),
   });
   const publishPayload = await publishResponse.json();
   if (!publishResponse.ok || publishPayload.data?.published !== true) {
-    throw new Error(`iot command publish failed: ${JSON.stringify(publishPayload)}`);
+    throw new Error(`anonymous iot command publish failed: ${JSON.stringify(publishPayload)}`);
   }
 
   const streamEvent = await streamPromise;
   if (
-    streamEvent.deviceId !== "device-001" ||
+    streamEvent.deviceId !== deviceId ||
     streamEvent.action !== "reboot" ||
-    streamEvent.topic !== "tenant/tenant_a/devices/device-001/commands"
+    streamEvent.topic !== `tenant/tenant_a/devices/${deviceId}/commands`
   ) {
-    throw new Error(`iot command stream failed: ${JSON.stringify(streamEvent)}`);
+    throw new Error(`anonymous iot command stream failed: ${JSON.stringify(streamEvent)}`);
   }
 
   const response = await fetch(`${gatewayUrl}/apps/iot-realtime/commands`, {
     headers: {
-      authorization: `Bearer ${token}`,
+      cookie: sessionCookie,
     },
   });
   const payload = await response.json();
-  if (
-    !response.ok ||
-    !Array.isArray(payload.data) ||
-    payload.data.length < 1 ||
-    payload.data[0]?.deviceId !== "device-001"
-  ) {
-    throw new Error(`iot command history failed: ${JSON.stringify(payload)}`);
+  if (!response.ok || !Array.isArray(payload.data) || payload.data[0]?.deviceId !== deviceId) {
+    throw new Error(`anonymous iot command history failed: ${JSON.stringify(payload)}`);
   }
 
-  console.log("iot command stream: ok");
-  console.log("iot command history: ok");
+  console.log("iot anonymous flow: ok");
 }
 
-async function assertRos2BridgeFlow(token) {
+async function assertAnonymousRos2Flow() {
+  const latestResponse = await fetch(`${gatewayUrl}/apps/ros2-bridge/messages/cmd_vel/latest`);
+  const latestPayload = await latestResponse.json();
+  if (!latestResponse.ok || latestPayload.data?.topicName !== "cmd_vel") {
+    throw new Error(`anonymous ros2 latest failed: ${JSON.stringify(latestPayload)}`);
+  }
+
+  const sessionCookie = extractSessionCookie(latestResponse, "anonymous ros2 latest");
+  await assertAnonymousMe("ros2-bridge", sessionCookie);
+
   const streamPromise = readFirstSseEvent(
     `${gatewayUrl}/apps/ros2-bridge/messages/cmd_vel/stream`,
-    token,
     "ros2-message",
+    {
+      cookie: sessionCookie,
+    },
   );
   const publishResponse = await fetch(`${gatewayUrl}/apps/ros2-bridge/messages`, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${token}`,
       "content-type": "application/json",
+      cookie: sessionCookie,
     },
     body: JSON.stringify({
       robotId: "robot-001",
@@ -379,7 +460,7 @@ async function assertRos2BridgeFlow(token) {
   });
   const publishPayload = await publishResponse.json();
   if (!publishResponse.ok || publishPayload.data?.published !== true) {
-    throw new Error(`ros2 publish failed: ${JSON.stringify(publishPayload)}`);
+    throw new Error(`anonymous ros2 publish failed: ${JSON.stringify(publishPayload)}`);
   }
 
   const streamEvent = await streamPromise;
@@ -388,40 +469,205 @@ async function assertRos2BridgeFlow(token) {
     streamEvent.robotId !== "robot-001" ||
     streamEvent.messageType !== "geometry_msgs/msg/Twist"
   ) {
-    throw new Error(`ros2 stream failed: ${JSON.stringify(streamEvent)}`);
+    throw new Error(`anonymous ros2 stream failed: ${JSON.stringify(streamEvent)}`);
   }
 
-  const latestResponse = await fetch(`${gatewayUrl}/apps/ros2-bridge/messages/cmd_vel/latest`, {
+  const refreshedLatestResponse = await fetch(`${gatewayUrl}/apps/ros2-bridge/messages/cmd_vel/latest`, {
     headers: {
-      authorization: `Bearer ${token}`,
+      cookie: sessionCookie,
     },
   });
-  const latestPayload = await latestResponse.json();
-  if (!latestResponse.ok || latestPayload.data?.topicName !== "cmd_vel") {
-    throw new Error(`ros2 latest failed: ${JSON.stringify(latestPayload)}`);
+  const refreshedLatestPayload = await refreshedLatestResponse.json();
+  if (!refreshedLatestResponse.ok || refreshedLatestPayload.data?.topicName !== "cmd_vel") {
+    throw new Error(`anonymous ros2 latest refresh failed: ${JSON.stringify(refreshedLatestPayload)}`);
   }
 
-  const historyResponse = await fetch(`${gatewayUrl}/apps/ros2-bridge/messages/cmd_vel`, {
-    headers: {
-      authorization: `Bearer ${token}`,
-    },
-  });
-  const historyPayload = await historyResponse.json();
-  if (!historyResponse.ok || !Array.isArray(historyPayload.data) || historyPayload.data.length < 1) {
-    throw new Error(`ros2 history failed: ${JSON.stringify(historyPayload)}`);
-  }
-
-  console.log("ros2 stream: ok");
-  console.log("ros2 bridge flow: ok");
+  console.log("ros2 anonymous flow: ok");
 }
 
-async function readFirstSseEvent(url, token, expectedEvent) {
+async function assertBlogFlow() {
+  const publicListResponse = await fetch(`${gatewayUrl}/apps/blog/posts`);
+  const publicListPayload = await publicListResponse.json();
+  if (!publicListResponse.ok || !Array.isArray(publicListPayload.data) || publicListPayload.data.length < 1) {
+    throw new Error(`blog public list failed: ${JSON.stringify(publicListPayload)}`);
+  }
+
+  const token = authTokens.get("blog");
+  const createResponse = await fetch(`${gatewayUrl}/execute`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      kind: "command",
+      engine: "mongo",
+      action: "insertOne",
+      meta: {
+        policy: "blog.posts.create"
+      },
+      collection: "posts",
+      document: {
+        tenantId: { $ctx: "tenantId", token: "TENANT_ID" },
+        authorUid: { $ctx: "uid", token: "UID" },
+        authorName: "Blog Editor",
+        title: "Smoke test post",
+        slug: "smoke-test-post",
+        summary: "Created during smoke validation.",
+        body: "Verifying mongo + user integration.",
+        published: true
+      }
+    }),
+  });
+  const createPayload = await createResponse.json();
+  if (!createResponse.ok || createPayload.data?.slug !== "smoke-test-post") {
+    throw new Error(`blog create failed: ${JSON.stringify(createPayload)}`);
+  }
+
+  const mineResponse = await fetch(`${gatewayUrl}/execute`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      kind: "query",
+      engine: "mongo",
+      action: "find",
+      meta: {
+        policy: "blog.posts.list-mine"
+      },
+      collection: "posts",
+      query: {
+        tenantId: { $ctx: "tenantId", token: "TENANT_ID" },
+        authorUid: { $ctx: "uid", token: "UID" }
+      },
+      options: {
+        limit: 20
+      }
+    }),
+  });
+  const minePayload = await mineResponse.json();
+  if (
+    !mineResponse.ok ||
+    !Array.isArray(minePayload.data) ||
+    !minePayload.data.some((post) => post.slug === "smoke-test-post")
+  ) {
+    throw new Error(`blog mine failed: ${JSON.stringify(minePayload)}`);
+  }
+
+  const publishedResponse = await fetch(`${gatewayUrl}/apps/blog/posts`);
+  const publishedPayload = await publishedResponse.json();
+  if (
+    !publishedResponse.ok ||
+    !Array.isArray(publishedPayload.data) ||
+    !publishedPayload.data.some((post) => post.slug === "smoke-test-post")
+  ) {
+    throw new Error(`blog published list refresh failed: ${JSON.stringify(publishedPayload)}`);
+  }
+
+  console.log("blog mongo + user flow: ok");
+}
+
+async function assertBlogPublicFlow() {
+  const response = await fetch(`${gatewayUrl}/apps/blog/posts`);
+  const payload = await response.json();
+  if (!response.ok || !Array.isArray(payload.data) || payload.data.length < 1) {
+    throw new Error(`blog public list failed: ${JSON.stringify(payload)}`);
+  }
+
+  console.log("blog public ui: ok");
+}
+
+async function assertPortalFlow() {
+  const response = await fetch(portalUrl);
+  const html = await response.text();
+  const markers = [
+    "One entry point for every Bladb demo",
+    "Flash Sale",
+    "User Module Demo",
+  ];
+
+  if (containsAllMarkers(html, markers)) {
+    console.log("examples-portal suite ui: ok");
+    return;
+  }
+
+  const assetPaths = collectPortalAssetPaths(html);
+  for (const assetPath of assetPaths) {
+    try {
+      const assetUrl = new URL(assetPath, portalUrl).toString();
+      const assetResponse = await fetch(assetUrl);
+      if (!assetResponse.ok) {
+        continue;
+      }
+
+      const assetText = await assetResponse.text();
+      if (containsAllMarkers(assetText, markers)) {
+        console.log("examples-portal suite ui: ok");
+        return;
+      }
+    } catch {
+      // Ignore non-critical asset fetch failures and continue probing.
+    }
+  }
+
+  throw new Error("portal page assets are missing suite content markers");
+}
+
+function collectPortalAssetPaths(html) {
+  const matches = Array.from(
+    html.matchAll(/<(?:script|link)[^>]+(?:src|href)=["']([^"']+)["']/g),
+    (match) => match[1],
+  );
+
+  return [
+    ...new Set([
+      ...matches,
+      "/src/App.tsx",
+      "/src/main.tsx",
+    ]),
+  ];
+}
+
+function containsAllMarkers(text, markers) {
+  return markers.every((marker) => text.includes(marker));
+}
+
+function extractSessionCookie(response, label) {
+  const cookieHeader = response.headers.get("set-cookie");
+  const sessionCookie = cookieHeader?.split(";").at(0);
+  if (!sessionCookie) {
+    throw new Error(`${label} did not return a session cookie`);
+  }
+
+  return sessionCookie;
+}
+
+async function assertAnonymousMe(app, sessionCookie, expectedUid = undefined) {
+  const meResponse = await fetch(`${gatewayUrl}/users/me?app=${app}`, {
+    headers: {
+      cookie: sessionCookie,
+    },
+  });
+  const mePayload = await meResponse.json();
+  if (
+    !meResponse.ok ||
+    mePayload.data?.user?.app !== app ||
+    mePayload.data?.anonymous !== true ||
+    (expectedUid && mePayload.data?.user?.uid !== expectedUid)
+  ) {
+    throw new Error(`anonymous ${app} me failed: ${JSON.stringify(mePayload)}`);
+  }
+}
+
+async function readFirstSseEvent(url, expectedEvent, extraHeaders = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new Error(`timed out waiting for ${expectedEvent}`)), 8000);
   try {
     const response = await fetch(url, {
       headers: {
-        authorization: `Bearer ${token}`,
+        ...extraHeaders,
       },
       signal: controller.signal,
     });
@@ -440,7 +686,7 @@ async function readFirstSseEvent(url, token, expectedEvent) {
         break;
       }
 
-      buffered += decoder.decode(value, { stream: true });
+      buffered += decoder.decode(value, { stream: true }).replace(/\r/g, "");
       let boundary = buffered.indexOf("\n\n");
       while (boundary !== -1) {
         const frame = buffered.slice(0, boundary).trim();

@@ -1,0 +1,38 @@
+moduleClusters:
+  - name: blog.posts-mongo
+    category: data
+    runtime: mongo
+    policies:
+      - blog.posts.list-published
+      - blog.posts.list-mine
+      - blog.posts.create
+    discovery:
+      kind: service
+      service: bladb-module-blog
+      namespace: bladb
+    transport:
+      protocol: natsService
+      subject: rpc.blog.posts
+      queueGroup: bladb.blog.posts
+    routing:
+      strategy:
+        kind: hash
+        virtualShards: 64
+      routeBy:
+        - actor.tenantId
+    consistency:
+      reads: replicaPreferred
+      writes: quorum
+    failover:
+      mode: retryOtherReplica
+      maxAttempts: 2
+    deployment:
+      replicas: 2
+      minReadySeconds: 5
+      rolling:
+        maxUnavailable: 0
+        maxSurge: 1
+      autoscale:
+        minReplicas: 2
+        maxReplicas: 6
+        targetCpuUtilization: 70

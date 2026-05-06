@@ -17,7 +17,7 @@ It intentionally avoids the flash-sale, IoT, and ROS2 UIs so the auth lifecycle 
 ## Browser verification
 
 1. Start the local example stack with `pnpm dev:examples:local`.
-2. Open `http://127.0.0.1:4176`.
+2. Open `http://127.0.0.1:4177`.
 3. Login with `member@user.demo` / `demo123`.
 4. Confirm the `db.user.me()` snapshot panel shows the current session.
 5. Click `Refresh me` and confirm the session remains valid.

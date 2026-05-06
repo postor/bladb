@@ -225,13 +225,14 @@ export function useGatewaySession<TSession extends GatewaySession>(
     }
   };
 
-  const refresh = async (): Promise<TSession | null> => {
-    const token = browserAuth.getToken();
-    if (!token) {
-      setSession(null);
-      setReady(true);
-      return null;
-    }
+    const refresh = async (): Promise<TSession | null> => {
+      const token = browserAuth.getToken();
+      if (!token) {
+        setSession(null);
+        setLoading(false);
+        setReady(true);
+        return null;
+      }
 
     setLoading(true);
 

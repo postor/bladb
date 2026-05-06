@@ -1,5 +1,6 @@
 import process from "node:process";
 import {
+  clearExampleStackState,
   dockerComposeArgs,
   exampleStackPortEnv,
   resolveExampleStackPorts,
@@ -27,3 +28,4 @@ await runCommand(
   }),
   { cwd: rootDir, env: composeEnv },
 );
+await clearExampleStackState();

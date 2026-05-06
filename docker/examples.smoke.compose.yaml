@@ -3,7 +3,19 @@ services:
     ports:
       - "8787"
 
+  ros2-backend:
+    ports:
+      - "8080"
+
+  examples-portal:
+    ports:
+      - "80"
+
   flash-sale:
+    ports:
+      - "80"
+
+  blog:
     ports:
       - "80"
 

@@ -80,10 +80,6 @@ struct IotSubscriber {
 }
 
 impl IotModule {
-    fn guest_identity(&self) -> (&'static str, &'static str) {
-        ("u_1001", "tenant_a")
-    }
-
     pub fn new() -> Self {
         Self::from_config(IotModuleConfig {
             devices: vec![
@@ -180,22 +176,12 @@ impl IotModule {
             return Err(AppError::invalid_request("deviceId is missing"));
         }
 
+        let session = self.require_session(session)?;
         let state = self.state.lock().map_err(AppError::lock_runtime)?;
-        let (issued_by, tenant_id) = if let Some(session) = session {
-            (session.user.uid.as_str(), session.user.tenant_id.as_str())
-        } else if self.allow_anonymous_app_access {
-            self.guest_identity()
-        } else {
-            return Err(AppError::unauthorized("missing bearer token"));
-        };
         let device = state
             .devices
             .iter()
-            .find(|device| {
-                device.id == device_id
-                    && device.owner_uid == issued_by
-                    && device.tenant_id == tenant_id
-            })
+            .find(|device| device.id == device_id && self.can_access_device(device, session))
             .ok_or_else(|| AppError::not_found("device not found for current viewer"))?
             .clone();
         let (sender, receiver) = mpsc::channel();
@@ -204,11 +190,50 @@ impl IotModule {
         let mut state = self.state.lock().map_err(AppError::lock_runtime)?;
         state.subscribers.push(IotSubscriber {
             tenant_id: device.tenant_id.clone(),
-            issued_by: issued_by.to_string(),
+            issued_by: session.user.uid.clone(),
             device_id: device.id.clone(),
             sender,
         });
         Ok(Some(IotSubscription::Local(receiver)))
+    }
+
+    fn require_session<'a>(
+        &self,
+        session: Option<&'a crate::local::auth::AuthSession>,
+    ) -> Result<&'a crate::local::auth::AuthSession, AppError> {
+        let session = session.ok_or_else(|| {
+            if self.allow_anonymous_app_access {
+                AppError::internal("iot anonymous identity was not resolved by the gateway")
+            } else {
+                AppError::unauthorized("missing bearer token")
+            }
+        })?;
+
+        if session.user.app != "iot-realtime" {
+            return Err(AppError::unauthorized(
+                "iot app api requires an iot-realtime session",
+            ));
+        }
+
+        Ok(session)
+    }
+
+    fn can_access_device(
+        &self,
+        device: &IotDeviceConfig,
+        session: &crate::local::auth::AuthSession,
+    ) -> bool {
+        device.tenant_id == session.user.tenant_id
+            && (session.user.anonymous || device.owner_uid == session.user.uid)
+    }
+
+    fn can_access_telemetry(
+        &self,
+        telemetry: &IotTelemetryConfig,
+        session: &crate::local::auth::AuthSession,
+    ) -> bool {
+        telemetry.tenant_id == session.user.tenant_id
+            && (session.user.anonymous || telemetry.owner_uid == session.user.uid)
     }
 
     fn publish_command_record(
@@ -267,26 +292,23 @@ impl ModuleRuntime for IotModule {
     fn execute(&self, context: &ExecutionContext) -> Result<Value, RuntimeError> {
         let policy = context.policy_name();
         let body = &context.routed.body;
+        let uid = context
+            .auth
+            .uid
+            .as_deref()
+            .ok_or_else(|| RuntimeError::invalid_request("uid is missing"))?;
+        let tenant_id = context
+            .auth
+            .tenant_id
+            .as_deref()
+            .ok_or_else(|| RuntimeError::invalid_request("tenantId is missing"))?;
         match policy {
             "iot.devices.list-mine" => {
                 let state = self.state.lock().map_err(AppError::lock_runtime)?;
-                let query = body
-                    .query
-                    .as_ref()
-                    .ok_or_else(|| RuntimeError::invalid_request("device query is missing"))?;
-                let owner_uid = query
-                    .get("ownerUid")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| RuntimeError::invalid_request("ownerUid is missing"))?;
-                let tenant_id = query
-                    .get("tenantId")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| RuntimeError::invalid_request("tenantId is missing"))?;
-
                 let devices: Vec<Value> = state
                     .devices
                     .iter()
-                    .filter(|device| device.owner_uid == owner_uid && device.tenant_id == tenant_id)
+                    .filter(|device| device.owner_uid == uid && device.tenant_id == tenant_id)
                     .map(|device| {
                         json!({
                             "id": device.id,
@@ -308,21 +330,11 @@ impl ModuleRuntime for IotModule {
                     .get("deviceId")
                     .and_then(Value::as_str)
                     .ok_or_else(|| RuntimeError::invalid_request("deviceId is missing"))?;
-                let owner_uid = query
-                    .get("ownerUid")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| RuntimeError::invalid_request("ownerUid is missing"))?;
-                let tenant_id = query
-                    .get("tenantId")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| RuntimeError::invalid_request("tenantId is missing"))?;
 
                 let telemetry = state
                     .telemetry_latest
                     .get(device_id)
-                    .filter(|telemetry| {
-                        telemetry.owner_uid == owner_uid && telemetry.tenant_id == tenant_id
-                    })
+                    .filter(|telemetry| telemetry.owner_uid == uid && telemetry.tenant_id == tenant_id)
                     .ok_or_else(|| RuntimeError::not_found("telemetry record not found"))?;
 
                 Ok(json!({
@@ -351,10 +363,6 @@ impl ModuleRuntime for IotModule {
                     .get("action")
                     .and_then(Value::as_str)
                     .ok_or_else(|| RuntimeError::invalid_request("command action is missing"))?;
-                let issued_by = payload
-                    .get("issuedBy")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| RuntimeError::invalid_request("issuedBy is missing"))?;
                 let device_id = context
                     .request
                     .meta
@@ -362,7 +370,24 @@ impl ModuleRuntime for IotModule {
                     .get("deviceId")
                     .and_then(Value::as_str)
                     .ok_or_else(|| RuntimeError::invalid_request("deviceId is missing"))?;
-                Self::publish_command_record(&mut state, device_id, topic, action, issued_by)
+                let device = state
+                    .devices
+                    .iter()
+                    .find(|device| {
+                        device.id == device_id
+                            && device.owner_uid == uid
+                            && device.tenant_id == tenant_id
+                    })
+                    .ok_or_else(|| RuntimeError::not_found("device not found for current viewer"))?;
+                let expected_topic =
+                    format!("tenant/{}/devices/{}/commands", device.tenant_id, device.id);
+                if topic != expected_topic {
+                    return Err(RuntimeError::invalid_request(
+                        "prepared mqtt topic does not match tenant-scoped device command contract",
+                    ));
+                }
+
+                Self::publish_command_record(&mut state, device_id, topic, action, uid)
             }
             _ => Err(RuntimeError::internal(format!(
                 "unsupported iot policy `{policy}`"
@@ -382,19 +407,9 @@ impl AppApiHandler for IotModule {
     }
 
     fn handle(&self, request: AppApiRequest) -> Result<Value, AppError> {
-        let (issued_by, tenant_id) = if let Some(session) = request.session.as_ref() {
-            if session.user.app != "iot-realtime" {
-                return Err(AppError::unauthorized(
-                    "iot command history requires an iot-realtime session",
-                ));
-            }
-
-            (session.user.uid.as_str(), session.user.tenant_id.as_str())
-        } else if self.allow_anonymous_app_access {
-            self.guest_identity()
-        } else {
-            return Err(AppError::unauthorized("missing bearer token"));
-        };
+        let session = self.require_session(request.session.as_ref())?;
+        let issued_by = session.user.uid.as_str();
+        let tenant_id = session.user.tenant_id.as_str();
 
         match request.method.as_str() {
             "GET" => {
@@ -403,9 +418,7 @@ impl AppApiHandler for IotModule {
                     let devices: Vec<Value> = state
                         .devices
                         .iter()
-                        .filter(|device| {
-                            device.owner_uid == issued_by && device.tenant_id == tenant_id
-                        })
+                        .filter(|device| self.can_access_device(device, session))
                         .map(|device| {
                             json!({
                                 "id": device.id,
@@ -436,9 +449,7 @@ impl AppApiHandler for IotModule {
                     let telemetry = state
                         .telemetry_latest
                         .get(device_id)
-                        .filter(|telemetry| {
-                            telemetry.owner_uid == issued_by && telemetry.tenant_id == tenant_id
-                        })
+                        .filter(|telemetry| self.can_access_telemetry(telemetry, session))
                         .ok_or_else(|| AppError::not_found("telemetry record not found"))?;
 
                     return Ok(json!({
@@ -490,11 +501,7 @@ impl AppApiHandler for IotModule {
                 let device = state
                     .devices
                     .iter()
-                    .find(|device| {
-                        device.id == device_id
-                            && device.owner_uid == issued_by
-                            && device.tenant_id == tenant_id
-                    })
+                    .find(|device| device.id == device_id && self.can_access_device(device, session))
                     .ok_or_else(|| AppError::not_found("device not found for current viewer"))?;
                 let topic = format!("tenant/{}/devices/{}/commands", device.tenant_id, device.id);
 
@@ -528,7 +535,21 @@ mod tests {
     use std::time::Duration;
 
     fn session() -> AuthSession {
-        let service = InMemoryAuthService::from_user_configs(vec![InMemoryUserConfig {
+        let service = auth_service();
+
+        service
+            .login("iot-realtime", "operator@iot.demo", "demo123")
+            .expect("iot session")
+    }
+
+    fn anonymous_session() -> AuthSession {
+        auth_service()
+            .ensure_anonymous_session("iot-realtime")
+            .expect("anonymous iot session")
+    }
+
+    fn auth_service() -> InMemoryAuthService {
+        InMemoryAuthService::from_user_configs(vec![InMemoryUserConfig {
             app: "iot-realtime".into(),
             uid: "u_1001".into(),
             tenant_id: "tenant_a".into(),
@@ -536,11 +557,7 @@ mod tests {
             password: "demo123".into(),
             display_name: "IoT Operator".into(),
             roles: vec!["operator".into()],
-        }]);
-
-        service
-            .login("iot-realtime", "operator@iot.demo", "demo123")
-            .expect("iot session")
+        }])
     }
 
     #[test]
@@ -607,25 +624,57 @@ mod tests {
     }
 
     #[test]
-    fn iot_module_allows_anonymous_command_history_when_enabled() {
+    fn iot_module_tracks_anonymous_command_history_per_identity() {
         let module = IotModule::new();
+        let first_session = anonymous_session();
+        let second_session = anonymous_session();
+
+        module
+            .handle(AppApiRequest {
+                method: "POST".into(),
+                path: "/apps/iot-realtime/commands".into(),
+                body: Some(json!({
+                    "deviceId": "device-001",
+                    "action": "reboot"
+                })),
+                session: Some(first_session.clone()),
+            })
+            .expect("anonymous publish");
+
         let response = module
             .handle(AppApiRequest {
                 method: "GET".into(),
                 path: "/apps/iot-realtime/commands".into(),
                 body: None,
-                session: None,
+                session: Some(first_session),
             })
             .expect("anonymous command history");
+        let history = response.as_array().expect("anonymous command history array");
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0]["issuedBy"], "anon_iot_realtime_3000");
 
-        assert!(response.as_array().is_some());
+        let other_response = module
+            .handle(AppApiRequest {
+                method: "GET".into(),
+                path: "/apps/iot-realtime/commands".into(),
+                body: None,
+                session: Some(second_session),
+            })
+            .expect("other anonymous command history");
+        assert_eq!(
+            other_response.as_array().map(Vec::len),
+            Some(0),
+        );
     }
 
     #[test]
-    fn iot_module_allows_anonymous_stream_subscription_when_enabled() {
+    fn iot_module_allows_anonymous_stream_subscription_when_gateway_resolves_session() {
         let module = IotModule::new();
         let subscription = module
-            .open_command_stream(None, "/apps/iot-realtime/commands/device-001/stream")
+            .open_command_stream(
+                Some(&anonymous_session()),
+                "/apps/iot-realtime/commands/device-001/stream",
+            )
             .expect("open anonymous iot stream");
 
         assert!(matches!(subscription, Some(IotSubscription::Local(_))));

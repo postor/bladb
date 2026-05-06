@@ -102,7 +102,13 @@ function parseBody(req) {
 }
 
 function matchRobot(robotId, ownerUid) {
-  return robots.find((robot) => robot.id === robotId && robot.ownerUid === ownerUid && robot.tenantId === tenantId);
+  const anonymous = typeof ownerUid === "string" && ownerUid.startsWith("anon_");
+  return robots.find(
+    (robot) =>
+      robot.id === robotId &&
+      robot.tenantId === tenantId &&
+      (anonymous || robot.ownerUid === ownerUid)
+  );
 }
 
 const server = http.createServer(async (req, res) => {

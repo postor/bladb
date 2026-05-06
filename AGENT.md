@@ -27,6 +27,11 @@ Build Bladb as an optimal-first platform:
 13. Do not stop after a short planning reply waiting for another nudge when the user has already asked for execution; continue from planning into implementation unless blocked by a real risk or missing requirement.
 14. If meaningful work remains after one batch, update the plan, break the remainder into concrete next steps, and keep executing instead of ending on a vague promise to continue later.
 15. Avoid terse, low-information progress replies for non-trivial tasks. Progress updates should name the current phase, what was learned, and what happens next.
+16. When the user explicitly asks to update `AGENT.md`, add or revise the repo rules immediately as part of the active task instead of deferring it behind later implementation.
+17. If the user says "plan first", "列出计划", or otherwise asks for planning before coding, write the plan into the repo, keep it updated while implementing, and continue executing unless a real blocker appears.
+18. When a requested feature still has substantial unfinished work, keep decomposing the remaining scope into concrete phases and sub-steps until the path to completion is visible.
+19. If the user asks for subagent usage or parallel investigation, prefer bounded subagent scouting tasks for independent research while the main agent keeps the critical path moving locally.
+20. For requests that explicitly include browser verification or end-to-end proof, do not treat implementation as done until the browser-visible flow has been exercised or an explicit environment blocker is documented.
 
 ## Self-Learning Workflow
 
@@ -47,6 +52,8 @@ Agents must continuously learn from implementation work and feed those learnings
 5. If the task is non-trivial or cross-layer, keep a visible plan updated as steps complete or change.
 6. If a user explicitly asks for "plan first", write or update the plan before deeper implementation and keep that plan synchronized with actual progress.
 7. When work is only partially complete, identify the remaining items explicitly and queue the next execution batch instead of leaving the tail implicit.
+8. If the task includes examples, docs, tests, and browser behavior, track each lane separately in the plan so nothing silently drops out of scope.
+9. When example apps are changed in a way that affects entry flow, auth assumptions, or public onboarding, update the supporting docs and smoke expectations in the same execution stream.
 
 ### After work
 

@@ -348,3 +348,58 @@ test("useUserSession can layer session state on top of plain db.user commands", 
     cleanup();
   }
 });
+
+test("useUserSession leaves loading false when no stored token exists", async () => {
+  const { cleanup } = installDom();
+  const container = document.getElementById("root");
+  assert.ok(container);
+  const root = createRoot(container);
+
+  const sessionStore = createBrowserSessionStore<GatewaySession>({
+    tokenKey: "empty.user.token",
+    sessionKey: "empty.user.session"
+  });
+
+  let meCalls = 0;
+  const user = createBrowserUserModule(
+    {
+      login: async () => {
+        throw new Error("not used");
+      },
+      register: async () => {
+        throw new Error("not used");
+      },
+      me: async () => {
+        meCalls += 1;
+        throw new Error("not used");
+      }
+    },
+    sessionStore
+  );
+
+  let snapshot: ReturnType<typeof useUserSession<GatewaySession>> | null = null;
+
+  function Harness() {
+    snapshot = useUserSession(user);
+    return null;
+  }
+
+  try {
+    await act(async () => {
+      root.render(createElement(Harness));
+    });
+
+    await flushEffects();
+
+    assert.ok(snapshot);
+    assert.equal(snapshot.session, null);
+    assert.equal(snapshot.ready, true);
+    assert.equal(snapshot.loading, false);
+    assert.equal(meCalls, 0);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    cleanup();
+  }
+});
